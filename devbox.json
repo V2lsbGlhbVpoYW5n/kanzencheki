@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.5/.schema/devbox.schema.json",
+  "packages": {
+    "nodejs":     "22",
+    "rustc":      "latest",
+    "cargo":      "latest",
+    "pkg-config": "latest",
+    "openssl": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    },
+    "gtk3": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    },
+    "webkitgtk_4_1": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    },
+    "librsvg": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    }
+  },
+  "env": {
+    "XDG_CACHE_HOME":   "$PWD/.cache",
+    "npm_config_cache": "$PWD/.cache/npm",
+    "CARGO_HOME":       "$PWD/.cache/cargo",
+    "CARGO_TARGET_DIR": "$PWD/.cache/cargo-target"
+  },
+  "shell": {
+    "init_hook": [
+      "mkdir -p \"$XDG_CACHE_HOME\" \"$CARGO_HOME\""
+    ],
+    "scripts": {
+      "dev":        "npm run dev",
+      "desktop":    "npm run tauri dev",
+      "check":      "npm run check && npm run build",
+      "check-rust": "cargo check --manifest-path src-tauri/Cargo.toml"
+    }
+  }
+}

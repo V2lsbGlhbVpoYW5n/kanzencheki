@@ -1,0 +1,10 @@
+.devbox/
+.cache/
+node_modules/
+.svelte-kit/
+build/
+src-tauri/target/
+.env
+.DS_Store
+
+src-tauri/gen/schemas/
