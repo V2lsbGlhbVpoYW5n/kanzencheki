@@ -10,6 +10,7 @@ import { incomplete, metadata, type Cheki } from "./model";
 
 const photo: Cheki = {
   id: "test",
+  group: "",
   date: "2026-08-27",
   people: ["小明", "小蓝"],
   event: "生日公演",
@@ -56,4 +57,19 @@ it("editing a draft does not mutate persisted people or tags", () => {
   draft.tags.splice(0);
   expect(photo.people).toEqual(["小明", "小蓝"]);
   expect(photo.tags).toHaveLength(2);
+});
+
+it("uses group instead of people to complete a group shot", () => {
+  expect(
+    incomplete({ ...photo, shotType: "团切", group: "测试团体", people: [] }),
+  ).toBe(false);
+  expect(
+    incomplete({ ...photo, shotType: "团切", group: "", people: ["旧人物"] }),
+  ).toBe(true);
+  expect(
+    metadata({ ...photo, shotType: "团切", group: "测试团体" }).people,
+  ).toEqual([]);
+  expect(
+    matches({ ...photo, shotType: "团切", group: "测试团体" }, "测试团体"),
+  ).toBe(true);
 });

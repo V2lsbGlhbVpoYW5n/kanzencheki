@@ -135,6 +135,68 @@
         }
       }
     },
+    "imagemagick@latest": {
+      "last_modified": "2026-08-29T00:50:12Z",
+      "resolved": "github:NixOS/nixpkgs/e8be7818e19ada32105a8af937a6a473b38167ca#imagemagick",
+      "source": "devbox-search",
+      "version": "7.1.2-29",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/v18pbkzg2jsv6c329lc0gk980hjyfmki-imagemagick-7.1.2-29",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/av4vc4vq7x5is9r76l7wld9xwcmcryab-imagemagick-7.1.2-29-dev"
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/7h0621qn9k3bq0b3zlni09qhgys8f7ir-imagemagick-7.1.2-29-doc"
+            }
+          ],
+          "store_path": "/nix/store/v18pbkzg2jsv6c329lc0gk980hjyfmki-imagemagick-7.1.2-29"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/syzj9cllhq7nhixb4dn707psc2avpn1g-imagemagick-7.1.2-29",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/sr1iad40rbkbaipv4362mgijrj63vd8r-imagemagick-7.1.2-29-dev"
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/3vdw59vhcnkv67mlrzmx6x0rckhj5qpa-imagemagick-7.1.2-29-doc"
+            }
+          ],
+          "store_path": "/nix/store/syzj9cllhq7nhixb4dn707psc2avpn1g-imagemagick-7.1.2-29"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/1fj0wg21ba24hv612yg4kqwzxbnyappm-imagemagick-7.1.2-29",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/w9b2wk875bnzmr10v5yflccfizrff7iy-imagemagick-7.1.2-29-dev"
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/8l8324nl8l7az72xgvckyp1hs1lgj3m2-imagemagick-7.1.2-29-doc"
+            }
+          ],
+          "store_path": "/nix/store/1fj0wg21ba24hv612yg4kqwzxbnyappm-imagemagick-7.1.2-29"
+        }
+      }
+    },
     "librsvg@latest": {
       "last_modified": "2026-08-27T07:16:00Z",
       "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#librsvg",
@@ -507,6 +569,44 @@
             }
           ],
           "store_path": "/nix/store/yaa1sq5g4jar7rvlspy7kk2wd98nj6qh-rustc-wrapper-1.97.1"
+        }
+      }
+    },
+    "rustfmt@latest": {
+      "last_modified": "2026-08-27T07:16:00Z",
+      "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#rustfmt",
+      "source": "devbox-search",
+      "version": "1.97.1",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/l7xlkqk1bz4w75rwf5dh7pn2br04n59l-rustfmt-1.97.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/l7xlkqk1bz4w75rwf5dh7pn2br04n59l-rustfmt-1.97.1"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/rl3j1za9dpdri1vr52vl69y1qczjb5zv-rustfmt-1.97.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/rl3j1za9dpdri1vr52vl69y1qczjb5zv-rustfmt-1.97.1"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/47k26k98v32x56rxiqawdk5qk0r0b6w1-rustfmt-1.97.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/47k26k98v32x56rxiqawdk5qk0r0b6w1-rustfmt-1.97.1"
         }
       }
     },

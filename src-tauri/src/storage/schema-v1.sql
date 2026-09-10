@@ -1,0 +1,12 @@
+BEGIN;
+          CREATE TABLE IF NOT EXISTS chekis(id TEXT PRIMARY KEY, date TEXT NOT NULL DEFAULT '', event TEXT NOT NULL DEFAULT '', shot_type TEXT NOT NULL DEFAULT '其他', notes TEXT NOT NULL DEFAULT '', favorite INTEGER NOT NULL DEFAULT 0, cover_asset_id TEXT);
+          CREATE TABLE IF NOT EXISTS people(id TEXT PRIMARY KEY, name TEXT NOT NULL, key TEXT NOT NULL UNIQUE);
+          CREATE TABLE IF NOT EXISTS tags(id TEXT PRIMARY KEY, name TEXT NOT NULL, key TEXT NOT NULL UNIQUE);
+          CREATE TABLE IF NOT EXISTS cheki_people(cheki_id TEXT REFERENCES chekis(id), person_id TEXT REFERENCES people(id), position INTEGER NOT NULL, PRIMARY KEY(cheki_id,person_id));
+          CREATE TABLE IF NOT EXISTS cheki_tags(cheki_id TEXT REFERENCES chekis(id), tag_id TEXT REFERENCES tags(id), position INTEGER NOT NULL, PRIMARY KEY(cheki_id,tag_id));
+          CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'unknown', original_filename TEXT NOT NULL, width INTEGER, height INTEGER, preview_error TEXT);
+          CREATE TABLE IF NOT EXISTS cheki_assets(cheki_id TEXT REFERENCES chekis(id), asset_id TEXT REFERENCES assets(id), position INTEGER NOT NULL, PRIMARY KEY(cheki_id,asset_id));
+          CREATE TABLE IF NOT EXISTS renditions(id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id), role TEXT NOT NULL, relative_path TEXT NOT NULL UNIQUE, mime_type TEXT NOT NULL, byte_size INTEGER NOT NULL, UNIQUE(asset_id,role));
+          CREATE TABLE IF NOT EXISTS pending_renames(old_path TEXT PRIMARY KEY, new_path TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS asset_links ON cheki_assets(asset_id);
+          PRAGMA user_version=1; COMMIT;

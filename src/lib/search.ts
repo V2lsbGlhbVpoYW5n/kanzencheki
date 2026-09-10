@@ -20,6 +20,7 @@ export function matches(c: Cheki, query: string) {
     [
       c.date,
       ...c.people,
+      c.group,
       c.event,
       c.notes,
       c.shotType,
@@ -55,4 +56,39 @@ export function completeTag(query: string, caret: number, tag: string) {
       prefix + query.slice(token.start + current.length).replace(/^\s*/, ""),
     caret: prefix.length,
   };
+}
+
+export function relatedScore(a: Cheki, b: Cheki): number {
+  let best = 0;
+  for (const x of a.assets)
+    for (const y of b.assets) {
+      if (
+        x.fingerprint &&
+        y.fingerprint &&
+        x.fingerprint !== "0000000000000000" &&
+        y.fingerprint !== "0000000000000000"
+      ) {
+        let bits = BigInt("0x" + x.fingerprint) ^ BigInt("0x" + y.fingerprint);
+        let distance = 0;
+        while (bits) {
+          distance++;
+          bits &= bits - 1n;
+        }
+        if (distance <= 7) best = Math.max(best, 100 - distance * 5);
+      }
+      const stem = (s: string) =>
+        s
+          .replace(/\.[^.]+$/, "")
+          .replace(
+            /[-_ ](scan|mobile|phone|small|large|compressed|original|扫描|压缩).*$/i,
+            "",
+          )
+          .toLowerCase();
+      if (
+        stem(x.originalFilename).length > 3 &&
+        stem(x.originalFilename) === stem(y.originalFilename)
+      )
+        best = Math.max(best, 60);
+    }
+  return best;
 }

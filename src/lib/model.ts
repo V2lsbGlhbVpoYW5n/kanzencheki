@@ -3,6 +3,7 @@ export type ShotType = (typeof shotTypes)[number];
 export interface Metadata {
   date: string;
   people: string[];
+  group: string;
   event: string;
   tags: string[];
   shotType: ShotType;
@@ -11,7 +12,11 @@ export interface Metadata {
 }
 export interface Rendition {
   id: string;
-  role: "original" | "display" | "thumbnail";
+  role: string;
+  locationId?: string;
+  available?: boolean;
+  width?: number | null;
+  height?: number | null;
   relativePath: string;
   mimeType: string;
   byteSize: number;
@@ -19,6 +24,10 @@ export interface Rendition {
 export interface Asset {
   id: string;
   kind: string;
+  preferredSource?: string | null;
+  baseSrc?: string;
+  crop?: Crop | null;
+  fingerprint?: string | null;
   src: string;
   originalPath: string;
   filename: string;
@@ -32,6 +41,8 @@ export interface Asset {
 export interface Cheki extends Metadata {
   id: string;
   coverAssetId: string | null;
+  deletedAt?: string | null;
+  coverManual?: boolean;
   assets: Asset[];
   // Browser-only sample cover, never sent as metadata to the backend.
   demoTitle?: string;
@@ -41,13 +52,16 @@ export interface Cheki extends Metadata {
 export interface Library {
   root: string;
   chekis: Cheki[];
+  locations: Location[];
 }
 export function incomplete(c: Metadata) {
-  return !c.date || c.people.length === 0;
+  return (
+    !c.date || (c.shotType === "团切" ? !c.group.trim() : c.people.length === 0)
+  );
 }
 export function title(c: Cheki) {
   return (
-    c.people.join("、") ||
+    (c.shotType === "团切" ? c.group : c.people.join("、")) ||
     c.demoTitle ||
     c.assets[0]?.originalFilename ||
     "未命名收藏"
@@ -65,7 +79,8 @@ export function unique(values: string[]) {
 export function metadata(c: Metadata): Metadata {
   return {
     date: c.date,
-    people: [...c.people],
+    people: c.shotType === "团切" ? [] : [...c.people],
+    group: c.group || "",
     event: c.event,
     tags: [...c.tags],
     shotType: c.shotType,
@@ -79,4 +94,18 @@ export function formatBytes(n: number) {
     : n >= 1024 ** 2
       ? `${(n / 1024 ** 2).toFixed(1)} MB`
       : `${(n / 1024).toFixed(1)} KB`;
+}
+
+export interface Crop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export interface Location {
+  id: string;
+  path: string;
+  name: string;
+  online: boolean;
+  managed: boolean;
 }
