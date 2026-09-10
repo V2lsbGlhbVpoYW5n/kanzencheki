@@ -43,6 +43,10 @@
       "last_modified": "2026-09-02T18:03:51Z",
       "resolved": "github:NixOS/nixpkgs/9387b3fcc0c23c86661636da63faabad4235a0a6?lastModified=1788372231&narHash=sha256-7aqErvrAEz%2F5OcPA5p3M%2BtVOqeYc4oJXkNIPXfCqxAw%3D"
     },
+    "github:nix-community/nixGL#nixGLIntel": {
+      "last_modified": "2025-11-02T13:41:20Z",
+      "resolved": "github:nix-community/nixGL/b6105297e6f0cd041670c3e8628394d4ee247ed5?lastModified=1762090880&narHash=sha256-fbRQzIGPkjZa83MowjbD2ALaJf9y6KMDdJBQMKFeY%2F8%3D#nixGLIntel"
+    },
     "gtk3@latest": {
       "last_modified": "2026-08-29T00:50:12Z",
       "resolved": "github:NixOS/nixpkgs/e8be7818e19ada32105a8af937a6a473b38167ca#gtk3",

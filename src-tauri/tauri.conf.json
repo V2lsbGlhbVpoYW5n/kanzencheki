@@ -3,10 +3,31 @@
   "productName": "Cheki Gallery",
   "version": "0.1.0",
   "identifier": "app.chekigallery.desktop",
-  "build": { "beforeDevCommand": "npm run dev", "devUrl": "http://localhost:1420", "beforeBuildCommand": "npm run build", "frontendDist": "../build" },
-  "app": {
-    "windows": [{ "title": "Cheki Gallery", "width": 1280, "height": 840, "minWidth": 900, "minHeight": 600 }],
-    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost blob: data:; connect-src ipc: http://ipc.localhost" }
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
   },
-  "bundle": { "active": false }
+  "app": {
+    "windows": [
+      {
+        "title": "Cheki Gallery",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost blob: data:; connect-src ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": false
+  }
 }
