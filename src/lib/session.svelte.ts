@@ -26,7 +26,6 @@ function samples(): Cheki[] {
       assets: [
         {
           id: p.id + "-asset",
-          kind: "phone",
           src: p.src,
           originalPath: p.src,
           filename: p.src.split("/").pop()!,
@@ -72,35 +71,9 @@ export async function loadLibrary(force = false) {
   await watchTasks();
   if (!desktop || (librarySession.loaded && !force)) return;
   try {
-    const before = new Set(
-      librarySession.photos
-        .flatMap((c) => c.assets)
-        .flatMap((a) =>
-          a.renditions
-            .filter(
-              (r) =>
-                r.available &&
-                (r.role === "original" || r.role.startsWith("version:")),
-            )
-            .map((r) => r.id),
-        ),
-    );
     const result = await invoke<Library>("library_load");
     receive(result);
     librarySession.error = "";
-    const reconnected = result.chekis
-      .flatMap((c) => c.assets)
-      .some(
-        (a) =>
-          a.previewError &&
-          a.renditions.some(
-            (r) =>
-              r.available &&
-              !before.has(r.id) &&
-              (r.role === "original" || r.role.startsWith("version:")),
-          ),
-      );
-    if (reconnected && !librarySession.busy) void resumeCache();
   } catch (e) {
     librarySession.error = String(e);
   }
@@ -118,7 +91,7 @@ export async function setFavorite(c: Cheki) {
 }
 export async function importDesktop(
   chekiId: string | null,
-  options: { reference?: boolean; kind?: string; assetId?: string | null } = {},
+  options: { reference?: boolean; grouping?: string } = {},
   locationId: string | null = null,
 ) {
   await watchTasks();
@@ -140,10 +113,7 @@ export async function importDesktop(
         .flatMap((c) => c.assets)
         .filter((a) => a.previewError);
       if (failed.length)
-        notify(
-          `${failed.length} 份影像等待生成预览，可在设置中重试。`,
-          "error",
-        );
+        notify(`${failed.length} 份影像的预览生成失败。`, "error");
       return "";
     }
     updateTask({
@@ -173,11 +143,7 @@ export async function catalogCommand(
   command: string,
   args: Record<string, unknown> = {},
 ) {
-  const processing = [
-    "rendition_prefer",
-    "asset_crop",
-    "preview_retry",
-  ].includes(command);
+  const processing = ["asset_crop"].includes(command);
   const taskId = processing
     ? startTask(command === "asset_crop" ? "保存裁切" : "生成浏览图")
     : null;
@@ -207,6 +173,10 @@ export async function catalogCommand(
       });
     }
   } catch (e) {
+    // A filesystem batch may have completed some files before a later failure.
+    try {
+      receive(await invoke<Library>("library_load"));
+    } catch {}
     if (taskId)
       updateTask({
         id: taskId,
@@ -224,25 +194,6 @@ export async function addLocation(replace: string | null = null) {
   const result = await invoke<Library | null>("location_add", { replace });
   if (result) receive(result);
 }
-export async function resumeCache() {
-  await watchTasks();
-  const taskId = startTask("生成离线浏览图");
-  librarySession.busy = true;
-  try {
-    await catalogCommand("cache_resume", { taskId });
-  } catch (e) {
-    updateTask({
-      id: taskId,
-      title: "生成离线浏览图",
-      detail: String(e),
-      done: 0,
-      total: 0,
-      state: "error",
-    });
-  } finally {
-    librarySession.busy = false;
-  }
-}
 export async function trashChekis(ids: string[], restore = false) {
   if (desktop) await catalogCommand("cheki_trash", { ids, restore });
   else
@@ -251,19 +202,4 @@ export async function trashChekis(ids: string[], restore = false) {
         c.deletedAt = restore ? null : new Date().toISOString();
     }
   notify(restore ? "已恢复收藏" : `已将 ${ids.length} 张收藏移入回收站`);
-}
-export async function linkAsset(chekiId: string, assetId: string) {
-  if (desktop)
-    receive(await invoke<Library>("asset_link", { chekiId, assetId }));
-  else {
-    const target = librarySession.photos.find((c) => c.id === chekiId);
-    const asset = librarySession.photos
-      .flatMap((c) => c.assets)
-      .find((a) => a.id === assetId);
-    if (target && asset && !target.assets.some((a) => a.id === assetId))
-      target.assets.push(asset);
-  }
-}
-export async function retryPreview(assetId: string) {
-  await catalogCommand("preview_retry", { assetId });
 }

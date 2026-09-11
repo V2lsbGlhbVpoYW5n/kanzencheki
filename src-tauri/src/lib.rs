@@ -28,22 +28,6 @@ async fn cheki_update(
 ) -> Result<Library, String> {
     work(state.inner().clone(), move |s| s.update(&id, metadata)).await
 }
-#[tauri::command]
-async fn asset_link(
-    state: State<'_, Backend>,
-    cheki_id: String,
-    asset_id: String,
-) -> Result<Library, String> {
-    work(state.inner().clone(), move |s| s.link(&cheki_id, &asset_id)).await
-}
-#[tauri::command]
-async fn preview_retry(state: State<'_, Backend>, asset_id: String) -> Result<Library, String> {
-    work(state.inner().clone(), move |s| {
-        s.refresh_preview(&asset_id)?;
-        s.list()
-    })
-    .await
-}
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Progress {
@@ -102,11 +86,10 @@ async fn import_photos(
             .map(|p| p.into_path().map_err(|e| e.to_string()))
             .collect::<Result<Vec<_>, _>>()?
     };
-    if !["", "each", "collection", "versions"].contains(&options.grouping.as_str()) {
+    if !["", "each", "collection"].contains(&options.grouping.as_str()) {
         return Err("无效的导入组织方式".into());
     }
     let mut attach_cheki = options.cheki_id.clone();
-    let mut attach_asset = options.asset_id.clone();
     let total = paths.len();
     let mut imported = 0;
     let mut errors = vec![];
@@ -122,9 +105,7 @@ async fn import_photos(
         );
         let opts = ImportOptions {
             cheki_id: attach_cheki.clone(),
-            asset_id: attach_asset.clone(),
             reference: options.reference,
-            kind: options.kind.clone(),
             grouping: options.grouping.clone(),
         };
         match work(state.inner().clone(), move |s| {
@@ -133,14 +114,11 @@ async fn import_photos(
         })
         .await
         {
-            Ok((cheki, asset)) => {
+            Ok((cheki, _asset)) => {
                 imported += 1;
-                if options.grouping == "collection" || options.grouping == "versions" {
+                if options.grouping == "collection" {
                     if attach_cheki.is_none() {
                         attach_cheki = Some(cheki);
-                    }
-                    if options.grouping == "versions" && attach_asset.is_none() {
-                        attach_asset = Some(asset);
                     }
                 }
             }
@@ -208,43 +186,10 @@ async fn cheki_cover(
 async fn cheki_merge(
     state: State<'_, Backend>,
     target: String,
-    source: String,
+    sources: Vec<String>,
 ) -> Result<Library, String> {
     work(state.inner().clone(), move |s| {
-        s.merge_chekis(&target, &source)
-    })
-    .await
-}
-#[tauri::command]
-async fn asset_detach(
-    state: State<'_, Backend>,
-    cheki_id: String,
-    asset_id: String,
-) -> Result<Library, String> {
-    work(state.inner().clone(), move |s| {
-        s.detach(&cheki_id, &asset_id)
-    })
-    .await
-}
-#[tauri::command]
-async fn asset_kind(
-    state: State<'_, Backend>,
-    asset_id: String,
-    kind: String,
-) -> Result<Library, String> {
-    work(state.inner().clone(), move |s| {
-        s.asset_kind(&asset_id, &kind)
-    })
-    .await
-}
-#[tauri::command]
-async fn rendition_prefer(
-    state: State<'_, Backend>,
-    asset_id: String,
-    rendition_id: Option<String>,
-) -> Result<Library, String> {
-    work(state.inner().clone(), move |s| {
-        s.prefer_source(&asset_id, rendition_id)
+        s.merge_many(&target, &sources)
     })
     .await
 }
@@ -261,42 +206,36 @@ async fn crop_suggest(state: State<'_, Backend>, asset_id: String) -> Result<Cro
     work(state.inner().clone(), move |s| s.auto_crop(&asset_id)).await
 }
 #[tauri::command]
-async fn cache_resume(
-    app: tauri::AppHandle,
+async fn cheki_purge(state: State<'_, Backend>, ids: Vec<String>) -> Result<Library, String> {
+    work(state.inner().clone(), move |s| s.purge(&ids)).await
+}
+#[tauri::command]
+async fn asset_delete(
     state: State<'_, Backend>,
-    task_id: String,
+    cheki_id: String,
+    asset_id: String,
 ) -> Result<Library, String> {
-    let pending = work(state.inner().clone(), |s| s.pending()).await?;
-    let total = pending.len();
-    let mut errors = vec![];
-    for (i, asset) in pending.into_iter().enumerate() {
-        progress(
-            &app,
-            &task_id,
-            "生成离线浏览图",
-            i,
-            total,
-            "running",
-            &asset,
-        );
-        if let Err(e) = work(state.inner().clone(), move |s| s.refresh_preview(&asset)).await {
-            errors.push(e);
-        }
-    }
-    progress(
-        &app,
-        &task_id,
-        "生成离线浏览图",
-        total,
-        total,
-        if errors.is_empty() { "done" } else { "error" },
-        &if errors.is_empty() {
-            "缓存已就绪".into()
-        } else {
-            errors.join("；")
-        },
-    );
-    work(state.inner().clone(), |s| s.list()).await
+    work(state.inner().clone(), move |s| {
+        s.delete_asset(&cheki_id, &asset_id)
+    })
+    .await
+}
+#[tauri::command]
+async fn location_remove(
+    state: State<'_, Backend>,
+    location_id: String,
+) -> Result<Library, String> {
+    work(state.inner().clone(), move |s| {
+        s.remove_location(&location_id)
+    })
+    .await
+}
+#[tauri::command]
+async fn library_clear_local(
+    state: State<'_, Backend>,
+    confirmation: String,
+) -> Result<Library, String> {
+    work(state.inner().clone(), move |s| s.clear_local(&confirmation)).await
 }
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -314,20 +253,18 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             library_load,
+            cheki_purge,
+            asset_delete,
+            library_clear_local,
             cheki_update,
             import_photos,
-            asset_link,
-            preview_retry,
             location_add,
+            location_remove,
             cheki_trash,
             cheki_cover,
             cheki_merge,
-            asset_detach,
-            asset_kind,
             asset_crop,
             crop_suggest,
-            cache_resume,
-            rendition_prefer
         ])
         .run(tauri::generate_context!())
         .expect("Could not start Cheki Gallery");

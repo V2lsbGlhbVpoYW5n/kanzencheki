@@ -23,8 +23,6 @@ export interface Rendition {
 }
 export interface Asset {
   id: string;
-  kind: string;
-  preferredSource?: string | null;
   baseSrc?: string;
   crop?: Crop | null;
   fingerprint?: string | null;

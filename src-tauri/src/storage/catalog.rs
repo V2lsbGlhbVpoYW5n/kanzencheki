@@ -23,17 +23,15 @@ pub struct Location {
 #[serde(rename_all = "camelCase")]
 pub struct ImportOptions {
     pub cheki_id: Option<String>,
-    pub asset_id: Option<String>,
     #[serde(default)]
     pub reference: bool,
-    #[serde(default)]
-    pub kind: String,
     #[serde(default)]
     pub grouping: String,
 }
 impl Store {
     pub(super) fn migrate(&mut self, version: i64) -> Result<()> {
         if version >= 2 {
+            self.migrate_single_files()?;
             return Ok(());
         }
         self.db.execute_batch("BEGIN;
@@ -56,6 +54,7 @@ impl Store {
           UPDATE chekis SET notes=notes || char(10) || '原人物记录：' || (SELECT group_concat(p.name,'、') FROM cheki_people cp JOIN people p ON p.id=cp.person_id WHERE cp.cheki_id=chekis.id) WHERE shot_type='团切' AND EXISTS(SELECT 1 FROM cheki_people WHERE cheki_id=chekis.id);
           DELETE FROM cheki_people WHERE cheki_id IN (SELECT id FROM chekis WHERE shot_type='团切');
           PRAGMA user_version=2; COMMIT;")?;
+        self.migrate_single_files()?;
         Ok(())
     }
     pub fn locations(&self) -> Result<Vec<Location>> {
@@ -75,7 +74,7 @@ impl Store {
                     path: r.get(1)?,
                     name: r.get(2)?,
                     online: false,
-                    managed: false,
+                    managed: true,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -143,10 +142,7 @@ impl Store {
         let best = a
             .renditions
             .iter()
-            .filter(|r| {
-                is_source(&r.role)
-                    && (a.preferred_source.is_none() || Some(&r.id) == a.preferred_source.as_ref())
-            })
+            .filter(|r| is_source(&r.role))
             .max_by_key(|r| quality(r));
         if let Some(r) = best {
             a.original_path = self.path_for(r)?.to_string_lossy().into();
@@ -191,7 +187,7 @@ impl Store {
                         .map(quality)
                         .max()
                         .unwrap_or(0);
-                    (!a.src.is_empty(), q, a.kind == "scan")
+                    (!a.src.is_empty(), q)
                 })
                 .map(|a| a.id.clone());
         }
@@ -230,87 +226,20 @@ impl Store {
         )?;
         self.list()
     }
-    pub fn asset_kind(&mut self, asset: &str, kind: &str) -> Result<Library> {
-        if !["scan", "phone", "unknown"].contains(&kind) {
-            bail!("无效来源；场景返切不属于收藏相册");
-        }
-        self.db.execute(
-            "UPDATE assets SET kind=?2 WHERE id=?1",
-            params![asset, kind],
-        )?;
-        self.list()
-    }
-    pub fn merge_chekis(&mut self, target: &str, source: &str) -> Result<Library> {
-        if target == source {
-            bail!("请选择另一张收藏");
-        }
-        self.exists(target)?;
-        self.exists(source)?;
-        let tx = self.db.transaction()?;
-        tx.execute("INSERT OR IGNORE INTO cheki_assets(cheki_id,asset_id,position) SELECT ?1,asset_id,position+(SELECT COUNT(*) FROM cheki_assets WHERE cheki_id=?1) FROM cheki_assets WHERE cheki_id=?2",params![target,source])?;
-        // Keep source metadata recoverable rather than destructively flattening it.
-        tx.execute(
-            "UPDATE chekis SET deleted_at=?2 WHERE id=?1",
-            params![source, chrono::Utc::now().to_rfc3339()],
-        )?;
-        tx.commit()?;
-        self.list()
-    }
-    pub fn detach(&mut self, cheki: &str, asset: &str) -> Result<Library> {
-        let count: i64 = self.db.query_row(
-            "SELECT COUNT(*) FROM cheki_assets WHERE cheki_id=?1",
-            [cheki],
-            |r| r.get(0),
-        )?;
-        if count < 2 {
-            bail!("最后一份影像请通过删除收藏移入回收站");
-        }
-        let new = id();
-        let tx = self.db.transaction()?;
-        tx.execute(
-            "INSERT INTO chekis(id,cover_asset_id) VALUES(?1,?2)",
-            params![new, asset],
-        )?;
-        tx.execute("INSERT INTO cheki_assets(cheki_id,asset_id,position) SELECT ?3,asset_id,0 FROM cheki_assets WHERE cheki_id=?1 AND asset_id=?2",params![cheki,asset,new])?;
-        tx.execute(
-            "DELETE FROM cheki_assets WHERE cheki_id=?1 AND asset_id=?2",
-            params![cheki, asset],
-        )?;
-        tx.execute(
-            "UPDATE chekis SET cover_manual=0 WHERE id=?1 AND cover_asset_id=?2",
-            params![cheki, asset],
-        )?;
-        tx.commit()?;
-        self.list()
-    }
     pub fn import_file(&mut self, source: &Path, options: &ImportOptions) -> Result<()> {
-        if !["scan", "phone", "unknown", ""].contains(&options.kind.as_str()) {
-            bail!("无效影像来源");
-        }
         if let Some(ref c) = options.cheki_id {
             self.exists(c)?;
         }
-        if !options.reference && options.asset_id.is_none() {
+        if !options.reference {
             self.import_one(source, options.cheki_id.as_deref())?;
             let asset: String = self.db.query_row(
                 "SELECT id FROM assets ORDER BY rowid DESC LIMIT 1",
                 [],
                 |r| r.get(0),
             )?;
-            self.db.execute(
-                "UPDATE assets SET kind=?2 WHERE id=?1",
-                params![
-                    asset,
-                    if options.kind.is_empty() {
-                        "unknown"
-                    } else {
-                        &options.kind
-                    }
-                ],
-            )?;
             self.db.execute("UPDATE renditions SET width=(SELECT width FROM assets WHERE id=?1),height=(SELECT height FROM assets WHERE id=?1) WHERE asset_id=?1 AND role='original'",[&asset])?;
             // Cache processing can fail independently; the original is already indexed.
-            self.enqueue_preview(&asset)?;
+
             let display: Option<String> = self
                 .db
                 .query_row(
@@ -324,8 +253,8 @@ impl Store {
                 fs::copy(self.root.join(display), self.root.join(&base))?;
                 self.generated(&asset, "base", &base)?;
                 self.render_crop(&asset, None)?;
-                self.db
-                    .execute("DELETE FROM pending_previews WHERE asset_id=?1", [&asset])?;
+            } else {
+                bail!("原件已入库，但浏览图生成失败");
             }
             return Ok(());
         }
@@ -345,56 +274,29 @@ impl Store {
         let dims = image::ImageReader::open(&source)?
             .with_guessed_format()?
             .into_dimensions()?;
-        let asset = options.asset_id.clone().unwrap_or_else(id);
+        let asset = id();
         let cheki = options.cheki_id.clone().unwrap_or_else(id);
-        if options.asset_id.is_some() {
-            let exists: bool = self.db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM assets WHERE id=?1)",
-                [&asset],
-                |r| r.get(0),
-            )?;
-            if !exists {
-                bail!("找不到影像");
-            }
-        }
-        let (location, relative) = if options.reference {
-            let loc = self
-                .locations()?
-                .into_iter()
-                .filter(|l| !l.managed && source.starts_with(&l.path))
-                .max_by_key(|l| l.path.len())
-                .context("先在设置中添加原件所在目录")?;
-            (
-                loc.id,
-                source.strip_prefix(loc.path)?.to_string_lossy().to_string(),
-            )
-        } else {
-            let rid = id();
-            let metadata = self
-                .list()?
-                .chekis
-                .into_iter()
-                .find(|c| c.assets.iter().any(|a| a.id == asset))
-                .map(|c| c.metadata)
-                .unwrap_or_else(|| Metadata {
-                    shot_type: "其他".into(),
-                    ..Default::default()
-                });
-            let dest = format!("originals/{}", asset_filename(&metadata, &rid, &extension));
-            fs::copy(&source, self.root.join(&dest))?;
-            fs::File::open(self.root.join(&dest))?.sync_all()?;
-            ("local".into(), dest)
-        };
+        let loc = self
+            .locations()?
+            .into_iter()
+            .filter(|l| l.id != "local" && source.starts_with(&l.path))
+            .max_by_key(|l| l.path.len())
+            .context("先在设置中添加原件所在目录")?;
+        let relative = source
+            .strip_prefix(&loc.path)?
+            .to_string_lossy()
+            .to_string();
+        let location = loc.id;
         let duplicate: bool = self.db.query_row(
             "SELECT EXISTS(SELECT 1 FROM renditions WHERE location_id=?1 AND relative_path=?2)",
             params![location, relative],
             |r| r.get(0),
         )?;
         if duplicate {
-            bail!("文件已登记，可关联已有收藏／影像");
+            bail!("文件已登记，请在相册中归并收藏");
         }
         let tx = self.db.transaction()?;
-        if options.asset_id.is_none() {
+        {
             if options.cheki_id.is_none() {
                 tx.execute(
                     "INSERT INTO chekis(id,cover_asset_id) VALUES(?1,?2)",
@@ -405,11 +307,7 @@ impl Store {
                 "INSERT INTO assets(id,kind,original_filename,width,height) VALUES(?1,?2,?3,?4,?5)",
                 params![
                     asset,
-                    if options.kind.is_empty() {
-                        "unknown"
-                    } else {
-                        &options.kind
-                    },
+                    "unknown",
                     source.file_name().unwrap().to_string_lossy(),
                     dims.0,
                     dims.1
@@ -417,18 +315,18 @@ impl Store {
             )?;
             tx.execute("INSERT INTO cheki_assets(cheki_id,asset_id,position) VALUES(?1,?2,(SELECT COUNT(*) FROM cheki_assets WHERE cheki_id=?1))",params![cheki,asset])?;
         }
-        let role = if options.asset_id.is_some() {
-            format!("version:{}", id())
-        } else {
-            "original".into()
-        };
+        let role = "original";
         tx.execute("INSERT INTO renditions(id,asset_id,role,relative_path,mime_type,byte_size,location_id,width,height) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id(),asset,role,relative,mime,fs::metadata(&source)?.len() as i64,location,dims.0,dims.1])?;
-        tx.execute(
-            "INSERT OR IGNORE INTO pending_previews(asset_id) VALUES(?1)",
-            [&asset],
-        )?;
         tx.commit()?;
-        let _ = self.refresh_preview(&asset);
+        let metadata = self
+            .list()?
+            .chekis
+            .into_iter()
+            .find(|c| c.id == cheki)
+            .context("收藏不存在")?
+            .metadata;
+        self.update(&cheki, metadata)?;
+        self.refresh_preview(&asset)?;
         Ok(())
     }
     pub fn latest_link(&self) -> Result<(String, String)> {
@@ -442,7 +340,7 @@ impl Store {
         let loc = self
             .locations()?
             .into_iter()
-            .find(|l| l.id == location && !l.managed)
+            .find(|l| l.id == location && l.id != "local")
             .context("请选择外部目录")?;
         if !loc.online {
             bail!("目录离线");
@@ -494,22 +392,7 @@ impl Store {
         files.sort();
         Ok(files)
     }
-    pub fn pending(&self) -> Result<Vec<String>> {
-        Ok(self
-            .db
-            .prepare("SELECT asset_id FROM pending_previews")?
-            .query_map([], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?)
-    }
-    pub fn enqueue_preview(&self, asset: &str) -> Result<()> {
-        self.db.execute(
-            "INSERT OR IGNORE INTO pending_previews(asset_id) VALUES(?1)",
-            [asset],
-        )?;
-        Ok(())
-    }
     pub fn refresh_preview(&mut self, asset: &str) -> Result<()> {
-        self.enqueue_preview(asset)?;
         let result = self.generate_cache(asset);
         if let Err(ref e) = result {
             self.db.execute(
@@ -545,27 +428,17 @@ impl Store {
             .flat_map(|c| c.assets)
             .find(|a| a.id == asset)
             .context("找不到影像")?;
-        let preference: Option<String> = self.db.query_row(
-            "SELECT preferred_source FROM assets WHERE id=?1",
-            [asset],
-            |r| r.get(0),
-        )?;
         let source = a
             .renditions
             .iter()
-            .filter(|r| {
-                is_source(&r.role)
-                    && r.available
-                    && (preference.is_none() || Some(&r.id) == preference.as_ref())
-            })
+            .filter(|r| is_source(&r.role) && r.available)
             .max_by_key(|r| quality(r))
-            .context("原件离线，任务已保留；连接硬盘后重试")?;
+            .context("原件离线，操作失败，请连接目录后重新操作")?;
         let base = format!("previews/{asset}-base-{}.jpg", id());
         make_preview(&self.path_for(source)?, &self.root.join(&base))?;
         self.generated(asset, "base", &base)?;
         self.render_crop(asset, a.crop.as_ref())?;
-        self.db
-            .execute("DELETE FROM pending_previews WHERE asset_id=?1", [asset])?;
+
         self.db
             .execute("UPDATE assets SET preview_error=NULL WHERE id=?1", [asset])?;
         Ok(())
@@ -639,28 +512,13 @@ impl Store {
             |r| r.get(0),
         )?;
         if !has_base {
-            self.refresh_preview(asset)?;
+            bail!("本机浏览图不可用，无法裁切");
         }
         self.render_crop(asset, crop.as_ref())?;
         self.db.execute(
             "UPDATE assets SET crop_json=?2 WHERE id=?1",
             params![asset, crop.as_ref().map(serde_json::to_string).transpose()?],
         )?;
-        self.list()
-    }
-    pub fn prefer_source(&mut self, asset: &str, rendition: Option<String>) -> Result<Library> {
-        if let Some(ref r) = rendition {
-            let valid:bool=self.db.query_row("SELECT EXISTS(SELECT 1 FROM renditions WHERE id=?1 AND asset_id=?2 AND (role='original' OR role LIKE 'version:%'))",params![r,asset],|r|r.get(0))?;
-            if !valid {
-                bail!("请选择当前影像的原件版本");
-            }
-        }
-        self.db.execute(
-            "UPDATE assets SET preferred_source=?2 WHERE id=?1",
-            params![asset, rendition],
-        )?;
-        self.enqueue_preview(asset)?;
-        let _ = self.refresh_preview(asset);
         self.list()
     }
     pub fn auto_crop(&self, asset: &str) -> Result<Crop> {
@@ -720,7 +578,7 @@ impl Store {
     }
 }
 fn is_source(role: &str) -> bool {
-    role == "original" || role.starts_with("version:")
+    role == "original"
 }
 fn quality(r: &Rendition) -> u64 {
     (r.width.unwrap_or(0) as u64 * r.height.unwrap_or(0) as u64) * 4
@@ -740,7 +598,7 @@ mod tests {
         p
     }
     #[test]
-    fn external_originals_remain_unchanged_and_cached_crop_survives_disconnect() {
+    fn external_originals_are_renamed_and_cached_crop_survives_disconnect() {
         let tmp = tempfile::tempdir().unwrap();
         let disk = tmp.path().join("disk");
         fs::create_dir(&disk).unwrap();
@@ -753,7 +611,6 @@ mod tests {
             &p,
             &ImportOptions {
                 reference: true,
-                kind: "scan".into(),
                 ..Default::default()
             },
         )
@@ -761,14 +618,15 @@ mod tests {
         let c = s.list().unwrap().chekis.remove(0);
         let aid = c.assets[0].id.clone();
         assert!(Path::new(&c.assets[0].base_src).is_file());
-        assert!(s.pending().unwrap().is_empty());
         let mut m = c.metadata;
         m.date = "2026-08-27".into();
         m.shot_type = "团切".into();
         m.group = "测试团体".into();
         m.people = vec!["不应关联".into()];
         s.update(&c.id, m).unwrap();
-        assert_eq!(fs::read(&p).unwrap(), bytes);
+        let renamed = PathBuf::from(s.list().unwrap().chekis[0].assets[0].original_path.clone());
+        assert_ne!(p, renamed);
+        assert_eq!(fs::read(&renamed).unwrap(), bytes);
         fs::rename(&disk, tmp.path().join("unplugged")).unwrap();
         let crop = Crop {
             x: 0.1,
@@ -778,7 +636,14 @@ mod tests {
         };
         s.crop(&aid, Some(crop)).unwrap();
         assert!(s.refresh_preview(&aid).is_err());
-        assert_eq!(s.pending().unwrap(), vec![aid.clone()]);
+        assert!(!s
+            .db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='pending_previews')",
+                [],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap());
         drop(s);
         let mut s = Store::open(root).unwrap();
         let c = s.list().unwrap().chekis.remove(0);
@@ -796,8 +661,7 @@ mod tests {
         assert!(c.assets[0].crop.is_some());
         fs::rename(tmp.path().join("unplugged"), &disk).unwrap();
         s.refresh_preview(&aid).unwrap();
-        assert!(s.pending().unwrap().is_empty());
-        assert_eq!(fs::read(p).unwrap(), bytes);
+        assert_eq!(fs::read(renamed).unwrap(), bytes);
     }
     #[test]
     fn same_relative_names_in_different_roots_and_repeat_scan_are_safe() {
@@ -818,65 +682,44 @@ mod tests {
             .unwrap();
         }
         assert_eq!(s.list().unwrap().chekis.len(), 2);
-        for l in s.locations().unwrap().into_iter().filter(|l| !l.managed) {
+        for l in s
+            .locations()
+            .unwrap()
+            .into_iter()
+            .filter(|l| l.id != "local")
+        {
             assert!(s.location_files(&l.id).unwrap().is_empty());
         }
     }
     #[test]
-    fn versions_choose_resolution_manual_choice_and_collection_cover_are_independent() {
+    fn independent_files_choose_best_cover() {
         let tmp = tempfile::tempdir().unwrap();
         let mut s = Store::open(tmp.path().join("lib")).unwrap();
-        let low = photo(tmp.path(), "phone.jpg", 40, 60);
-        s.import_file(
-            &low,
-            &ImportOptions {
-                kind: "phone".into(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let low = photo(tmp.path(), "low.jpg", 40, 60);
+        s.import_file(&low, &Default::default()).unwrap();
         let c = s.list().unwrap().chekis.remove(0);
-        let a = c.assets[0].id.clone();
-        let high = photo(tmp.path(), "scan.tiff", 200, 300);
+        let high = photo(tmp.path(), "high.tiff", 200, 300);
         s.import_file(
             &high,
             &ImportOptions {
-                asset_id: Some(a.clone()),
                 cheki_id: Some(c.id.clone()),
                 ..Default::default()
             },
         )
         .unwrap();
         let c = s.list().unwrap().chekis.remove(0);
-        assert_eq!(c.assets.len(), 1);
-        assert_eq!(c.assets[0].width, Some(200));
-        assert_eq!(c.assets[0].renditions.len(), 4);
-        let original = c.assets[0]
+        assert_eq!(c.assets.len(), 2);
+        assert!(c.assets.iter().all(|a| a
             .renditions
             .iter()
-            .find(|r| r.role == "original")
-            .unwrap()
-            .id
-            .clone();
-        s.prefer_source(&a, Some(original)).unwrap();
-        let c = s.list().unwrap().chekis.remove(0);
+            .filter(|r| is_source(&r.role))
+            .count()
+            == 1));
+        assert_eq!(c.cover_asset_id, Some(c.assets[1].id.clone()));
         assert_eq!(
-            image::image_dimensions(&c.assets[0].base_src).unwrap(),
-            (40, 60)
+            s.cover(&c.id, Some(c.assets[0].id.clone())).unwrap().chekis[0].cover_asset_id,
+            Some(c.assets[0].id.clone())
         );
-        s.import_file(
-            &high,
-            &ImportOptions {
-                cheki_id: Some(c.id.clone()),
-                kind: "scan".into(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let c = s.list().unwrap().chekis.remove(0);
-        assert_ne!(c.cover_asset_id, Some(a.clone()));
-        let c = s.cover(&c.id, Some(a.clone())).unwrap().chekis.remove(0);
-        assert_eq!(c.cover_asset_id, Some(a));
     }
     #[test]
     fn trash_restore_and_merge_keep_sources_and_metadata() {
@@ -888,7 +731,7 @@ mod tests {
         let cs = s.list().unwrap().chekis;
         let a = cs[0].id.clone();
         let b = cs[1].id.clone();
-        s.merge_chekis(&a, &b).unwrap();
+        s.merge_many(&a, &[b.clone()]).unwrap();
         let cs = s.list().unwrap().chekis;
         assert_eq!(cs.iter().find(|c| c.id == a).unwrap().assets.len(), 2);
         assert!(cs.iter().find(|c| c.id == b).unwrap().deleted_at.is_some());
@@ -1000,7 +843,7 @@ mod migration_tests {
         assert_eq!(
             s.db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            2
+            3
         );
     }
 }
@@ -1053,7 +896,6 @@ mod large_image_test {
             .import_file(
                 &source,
                 &ImportOptions {
-                    kind: "scan".into(),
                     ..Default::default()
                 },
             )
@@ -1067,7 +909,6 @@ mod large_image_test {
             image::image_dimensions(&asset.base_src).unwrap(),
             (1800, 1800)
         );
-        assert!(store.pending().unwrap().is_empty());
         eprintln!("Imported {size} byte TIFF; original and 1800 × 1800 offline cache verified");
     }
 }

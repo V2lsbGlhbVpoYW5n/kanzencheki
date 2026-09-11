@@ -1,4 +1,5 @@
 mod catalog;
+mod lifecycle;
 use anyhow::{bail, Context, Result};
 pub use catalog::*;
 use chrono::NaiveDate;
@@ -41,7 +42,6 @@ pub struct Rendition {
 #[serde(rename_all = "camelCase")]
 pub struct Asset {
     pub id: String,
-    pub kind: String,
     pub src: String,
     pub original_path: String,
     pub filename: String,
@@ -54,7 +54,6 @@ pub struct Asset {
     pub base_src: String,
     pub crop: Option<Crop>,
     pub fingerprint: Option<String>,
-    pub preferred_source: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -213,7 +212,7 @@ impl Store {
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
         )?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 2 {
+        if version > 3 {
             bail!("图库版本比当前程序新，请升级程序");
         }
         db.execute_batch("BEGIN;
@@ -294,7 +293,6 @@ impl Store {
                 .query_map([&c.id], |r| {
                     Ok(Asset {
                         id: r.get(0)?,
-                        kind: r.get(1)?,
                         original_filename: r.get(2)?,
                         width: r.get(3)?,
                         height: r.get(4)?,
@@ -304,7 +302,6 @@ impl Store {
                             .get::<_, Option<String>>(6)?
                             .and_then(|s| serde_json::from_str(&s).ok()),
                         fingerprint: r.get(7)?,
-                        preferred_source: r.get(8)?,
                         src: String::new(),
                         original_path: String::new(),
                         filename: String::new(),
@@ -368,18 +365,33 @@ impl Store {
         }
         // Commit metadata and the rename intent together. Recovery can finish a move
         // even if the process exits before the filesystem or index update completes.
-        let rows: Vec<(String,String)> = tx.prepare("SELECT CASE WHEN r.role='original' THEN a.asset_id ELSE r.id END,r.relative_path FROM cheki_assets a JOIN renditions r ON r.asset_id=a.asset_id AND (r.role='original' OR r.role LIKE 'version:%') AND r.location_id='local' WHERE a.cheki_id=?1 AND a.rowid=(SELECT MIN(b.rowid) FROM cheki_assets b WHERE b.asset_id=a.asset_id)")?.query_map([cheki], |r| Ok((r.get(0)?,r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-        for (asset, old) in rows {
-            let ext = Path::new(&old)
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("bin");
-            let new = format!("originals/{}", asset_filename(&m, &asset, ext));
+        let rows: Vec<(String,String,String)> = tx.prepare("SELECT a.asset_id,r.relative_path,r.location_id FROM cheki_assets a JOIN renditions r ON r.asset_id=a.asset_id AND r.role='original' WHERE a.cheki_id=?1 AND a.rowid=(SELECT MIN(b.rowid) FROM cheki_assets b WHERE b.asset_id=a.asset_id)")?.query_map([cheki], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+        for (asset, old, location) in rows {
+            let path = Path::new(&old);
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("bin");
+            let new = path
+                .parent()
+                .unwrap_or(Path::new(""))
+                .join(asset_filename(&m, &asset, ext))
+                .to_string_lossy()
+                .into_owned();
             if old != new {
-                tx.execute(
-                    "INSERT OR REPLACE INTO pending_renames(old_path,new_path) VALUES(?1,?2)",
-                    params![old, new],
-                )?;
+                let root = if location == "local" {
+                    self.root.clone()
+                } else {
+                    PathBuf::from(tx.query_row(
+                        "SELECT path FROM locations WHERE id=?1",
+                        [&location],
+                        |r| r.get::<_, String>(0),
+                    )?)
+                };
+                if !root.join(&old).is_file() {
+                    bail!("原件离线，未保存修改：{old}");
+                }
+                if root.join(&new).exists() {
+                    bail!("文件名冲突：{new}");
+                }
+                tx.execute("INSERT OR REPLACE INTO pending_renames(old_path,new_path,location_id) VALUES(?1,?2,?3)", params![old,new,location])?;
             }
         }
         tx.commit()?;
@@ -387,14 +399,23 @@ impl Store {
         self.list()
     }
     fn recover_renames(&mut self) -> Result<()> {
-        let pending: Vec<(String, String)> = self
+        let pending: Vec<(String, String, String)> = self
             .db
-            .prepare("SELECT old_path,new_path FROM pending_renames")?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .prepare("SELECT old_path,new_path,location_id FROM pending_renames")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        for (old, new) in pending {
-            let old_file = self.root.join(&old);
-            let new_file = self.root.join(&new);
+        for (old, new, location) in pending {
+            let root = if location == "local" {
+                self.root.clone()
+            } else {
+                PathBuf::from(self.db.query_row(
+                    "SELECT path FROM locations WHERE id=?1",
+                    [&location],
+                    |r| r.get::<_, String>(0),
+                )?)
+            };
+            let old_file = root.join(&old);
+            let new_file = root.join(&new);
             if old_file.exists() {
                 if new_file.exists() {
                     bail!("文件重命名冲突，原件已保留：{new}");
@@ -405,10 +426,13 @@ impl Store {
             }
             let tx = self.db.transaction()?;
             tx.execute(
-                "UPDATE renditions SET relative_path=?2 WHERE relative_path=?1",
-                params![old, new],
+                "UPDATE renditions SET relative_path=?2 WHERE relative_path=?1 AND location_id=?3",
+                params![old, new, location],
             )?;
-            tx.execute("DELETE FROM pending_renames WHERE old_path=?1", [old])?;
+            tx.execute(
+                "DELETE FROM pending_renames WHERE old_path=?1 AND location_id=?2",
+                params![old, location],
+            )?;
             tx.commit()?;
         }
         Ok(())
@@ -453,7 +477,7 @@ impl Store {
         }
         let source = fs::canonicalize(source)?;
         if source.starts_with(&self.root) {
-            bail!("文件已经位于图库内，请关联已有影像");
+            bail!("文件已经位于图库内，请在相册中归并收藏");
         }
         let asset = id();
         let cheki = target.map(str::to_string).unwrap_or_else(id);
@@ -550,6 +574,7 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+    #[cfg(test)]
     pub fn link(&mut self, cheki: &str, asset: &str) -> Result<Library> {
         self.exists(cheki)?;
         self.db.execute("INSERT OR IGNORE INTO cheki_assets(cheki_id,asset_id,position) VALUES(?1,?2,(SELECT COUNT(*) FROM cheki_assets WHERE cheki_id=?1))",params![cheki,asset])?;

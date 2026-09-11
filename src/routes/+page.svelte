@@ -34,8 +34,6 @@
     saveCheki,
     setFavorite,
     importDesktop,
-    linkAsset,
-    retryPreview,
   } from "$lib/session.svelte";
   import {
     type Cheki,
@@ -48,7 +46,7 @@
     shotTypes,
     formatBytes,
   } from "$lib/model";
-  import { matches, relatedScore } from "$lib/search";
+  import { matches } from "$lib/search";
   let photos = $derived(librarySession.photos);
   let mode = $state<"all" | "favorites" | "inbox" | "trash">("all");
   let inboxIds = $state<string[]>([]);
@@ -77,7 +75,6 @@
   let settingsOpen = $state(false);
   let importOpen = $state(false);
   let targetCheki = $state<string | null>(null);
-  let targetAsset = $state<string | null>(null);
   let mergeId = $state("");
   let mergeConfirm = $state(false);
 
@@ -120,48 +117,75 @@
     await trashChekis(ids, true);
     checked = [];
   }
+  let merging = $state(false);
+  let purgeConfirm = $state(false);
+  $effect(() => {
+    checked.join();
+    mergeConfirm = false;
+    purgeConfirm = false;
+  });
   async function merge() {
-    if (!selected || !mergeId) return;
+    if (checked.length < 2 || saving) return;
+    if (!mergeId || !checked.includes(mergeId)) mergeId = checked[0];
     if (!mergeConfirm) {
       mergeConfirm = true;
       return;
     }
+    saving = true;
     try {
+      const sources = checked.filter((id) => id !== mergeId);
       if (desktop)
-        await catalogCommand("cheki_merge", {
-          target: selected.id,
-          source: mergeId,
-        });
+        await catalogCommand("cheki_merge", { target: mergeId, sources });
       else {
-        const from = photos.find((c) => c.id === mergeId)!;
-        selected.assets = Array.from(
-          new Map(
-            [...selected.assets, ...from.assets].map((a) => [a.id, a]),
-          ).values(),
-        );
-        from.deletedAt = new Date().toISOString();
+        const target = photos.find((c) => c.id === mergeId)!;
+        for (const c of photos.filter((c) => sources.includes(c.id))) {
+          target.assets = [
+            ...new Map(
+              [...target.assets, ...c.assets].map((a) => [a.id, a]),
+            ).values(),
+          ];
+          c.deletedAt = new Date().toISOString();
+        }
       }
-      notify("影像已归入当前收藏；原收藏资料保留在回收站");
-      mergeId = "";
+      checked = [];
+      merging = false;
       mergeConfirm = false;
-    } catch {}
+      notify("已归并影像；其余收藏资料保留在回收站");
+    } catch {
+    } finally {
+      saving = false;
+    }
   }
-  function prepareImport(
-    cheki: string | null = null,
-    asset: string | null = null,
-  ) {
+  async function purge() {
+    if (saving || !checked.length) return;
+    if (!purgeConfirm) {
+      purgeConfirm = true;
+      return;
+    }
+    saving = true;
+    try {
+      if (desktop) await catalogCommand("cheki_purge", { ids: checked });
+      else
+        librarySession.photos = photos.filter((c) => !checked.includes(c.id));
+      checked = [];
+      purgeConfirm = false;
+      notify("已从图库删除；不再使用的原件已移入系统回收站");
+    } catch {
+    } finally {
+      saving = false;
+    }
+  }
+  function prepareImport(cheki: string | null = null) {
     targetCheki = cheki;
-    targetAsset = asset;
     importOpen = true;
   }
   async function beginImport(options: {
     reference: boolean;
-    kind: string;
     grouping?: string;
   }) {
     if (desktop) {
       try {
-        await importDesktop(targetCheki, { ...options, assetId: targetAsset });
+        await importDesktop(targetCheki, options);
         if (mode === "inbox")
           inboxIds = unique([
             ...inboxIds,
@@ -181,19 +205,8 @@
   let input: HTMLInputElement;
   let imageInput = $state<HTMLInputElement>();
   let importTarget: string | null = null;
-  let linking = $state(false);
-  let linkedId = $state("");
   let selected = $derived(photos.find((c) => c.id === selectedId));
-  let related = $derived(
-    selected
-      ? photos
-          .filter((c) => !c.deletedAt && c.id !== selected.id)
-          .map((c) => ({ c, score: relatedScore(selected!, c) }))
-          .filter((x) => x.score >= 60)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 4)
-      : [],
-  );
+
   let currentAsset = $derived(selected?.assets[imageIndex]);
   let visible = $derived(
     photos
@@ -224,13 +237,7 @@
   let allEvents = $derived(
     unique(photos.filter((c) => !c.deletedAt).map((c) => c.event)).sort(),
   );
-  let otherAssets = $derived(
-    [
-      ...new Map(
-        photos.flatMap((c) => c.assets).map((a) => [a.id, a]),
-      ).values(),
-    ].filter((a) => !selected?.assets.some((b) => b.id === a.id)),
-  );
+
   let dirty = $derived(!!draft && JSON.stringify(draft) !== initial);
   $effect(() => {
     if (selectedId && viewer && !viewer.open) viewer.showModal();
@@ -282,8 +289,6 @@
     );
     original = false;
     error = "";
-    linking = false;
-    linkedId = "";
     filtersOpen = false;
     confirmDelete = false;
     mergeId = "";
@@ -402,7 +407,6 @@
       const id = crypto.randomUUID();
       const asset: Asset = {
         id,
-        kind: "unknown",
         src,
         originalPath: src,
         filename: file.name,
@@ -432,30 +436,6 @@
     }
     (e.target as HTMLInputElement).value = "";
     notice = "浏览器临时预览；正式持久化请启动桌面程序。";
-  }
-  async function associate() {
-    if (!selected || !linkedId) return;
-    saving = true;
-    try {
-      await linkAsset(selected.id, linkedId);
-      linking = false;
-      linkedId = "";
-    } catch (e) {
-      error = String(e);
-    } finally {
-      saving = false;
-    }
-  }
-  async function retry() {
-    if (!currentAsset) return;
-    saving = true;
-    try {
-      await retryPreview(currentAsset.id);
-    } catch (e) {
-      error = String(e);
-    } finally {
-      saving = false;
-    }
   }
 </script>
 
@@ -649,7 +629,20 @@
           class="btn btn-ghost btn-sm"
           disabled={!checked.length}
           onclick={() => restore()}><Undo2 size={14} />恢复</button
+        ><button
+          class="btn btn-ghost btn-sm text-error"
+          disabled={!checked.length || saving}
+          onclick={purge}
+          >{purgeConfirm ? "再次确认：移至系统回收站" : "永久删除…"}</button
         >{:else}<button
+          class="btn btn-ghost btn-sm"
+          disabled={checked.length < 2 || saving}
+          onclick={() => {
+            merging = !merging;
+            mergeId = checked[0];
+            mergeConfirm = false;
+          }}>归并…</button
+        ><button
           class={`btn btn-sm rounded-full ${confirmDelete ? "bg-[#bd8273]/25" : "btn-ghost"}`}
           disabled={!checked.length}
           onclick={() => remove()}
@@ -658,6 +651,38 @@
             : "移入回收站"}</button
         >{/if}
     </div>{/if}
+  {#if selecting && merging && mode !== "trash" && checked.length >= 2}
+    <section
+      class="glass-panel fixed bottom-40 left-1/2 z-30 w-80 -translate-x-1/2 space-y-3 rounded-2xl p-5"
+      aria-label="批量归并"
+    >
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm">将 {checked.length} 张收藏归并</h2>
+        <button class="btn btn-ghost btn-xs" onclick={() => (merging = false)}
+          >取消</button
+        >
+      </div>
+      <p class="text-xs text-black/50">
+        选择保留资料的收藏。其他收藏的影像归入此处，其原资料仍可从回收站恢复。
+      </p>
+      <SelectMenu
+        label="保留哪张收藏的资料"
+        bind:value={mergeId}
+        onchange={() => (mergeConfirm = false)}
+        options={photos
+          .filter((c) => checked.includes(c.id))
+          .map((c) => ({
+            value: c.id,
+            label: `${c.date || "未定日期"} · ${title(c)}`,
+          }))}
+      />
+      <button
+        class="btn glass-dark btn-sm w-full rounded-full text-white"
+        disabled={saving}
+        onclick={merge}>{mergeConfirm ? "确认归并" : "归并所选影像"}</button
+      >
+    </section>
+  {/if}
   <nav
     aria-label="相册工具"
     class="glass-light fixed bottom-7 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 sm:gap-3"
@@ -711,7 +736,7 @@
       onclick={() => prepareImport()}><Plus size={15} />导入</button
     >
     <button
-      class="btn btn-ghost btn-sm btn-circle"
+      class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20 text-[#596748]" : ""}`}
       aria-label="选择收藏"
       aria-pressed={selecting}
       onclick={() => {
@@ -721,7 +746,7 @@
       }}><CheckSquare size={16} /></button
     >
     <button
-      class="btn btn-ghost btn-sm btn-circle"
+      class={`btn btn-ghost btn-sm btn-circle ${mode === "trash" ? "bg-[#b28b83]/20 text-[#9a6c67]" : ""}`}
       aria-label="回收站"
       aria-pressed={mode === "trash"}
       onclick={() => changeMode("trash")}><Trash2 size={16} /></button
@@ -754,7 +779,7 @@
       multiple
       accept="image/jpeg,image/png,image/webp"
       onchange={browserImport}
-      aria-label="选择关联影像"
+      aria-label="选择影像文件"
     />
     <button
       class="absolute inset-0 h-full w-full cursor-default bg-[#d6d8cf]/25 backdrop-blur-[28px] backdrop-saturate-75"
@@ -849,7 +874,7 @@
                   role="tab"
                   aria-selected={infoTab === "assets"}
                   class={`tab h-7 px-3 text-xs ${infoTab === "assets" ? "tab-active" : ""}`}
-                  onclick={() => (infoTab = "assets")}>影像版本</button
+                  onclick={() => (infoTab = "assets")}>影像</button
                 >
               </div>
               <span class="text-[10px] text-black/40"
@@ -925,43 +950,14 @@
                 <AssetPanel
                   asset={currentAsset}
                   cheki={selected}
-                  onversion={() => prepareImport(selectedId, currentAsset!.id)}
+                  ondelete={() => {
+                    imageIndex = 0;
+                    if (!selected?.assets.length) {
+                      selectedId = null;
+                      draft = null;
+                    }
+                  }}
                 />
-                <div class="space-y-2 border-t border-black/8 pt-4">
-                  <p class="text-xs">归并同一张收藏</p>
-                  <SelectMenu
-                    label="选择要归并的收藏"
-                    bind:value={mergeId}
-                    onchange={() => (mergeConfirm = false)}
-                    options={[
-                      { value: "", label: "选择已有收藏…" },
-                      ...photos
-                        .filter((c) => !c.deletedAt && c.id !== selectedId)
-                        .map((c) => ({ value: c.id, label: title(c) })),
-                    ]}
-                  />
-                  {#if related.length}<p class="text-[10px] text-black/40">
-                      外观／文件名相似，仅作为候选
-                    </p>
-                    {#each related as candidate}<button
-                        class="btn btn-ghost btn-xs w-full justify-start truncate"
-                        onclick={() => {
-                          mergeId = candidate.c.id;
-                          mergeConfirm = false;
-                        }}
-                        >{title(candidate.c)} · {candidate.score >= 65
-                          ? "外观相似"
-                          : "文件名相似"}</button
-                      >{/each}{/if}
-                  <button
-                    class="btn btn-ghost btn-xs"
-                    disabled={!mergeId}
-                    onclick={merge}
-                    >{mergeConfirm
-                      ? "确认归并（原记录可恢复）"
-                      : "将其影像归入当前收藏"}</button
-                  >
-                </div>
               {/if}
               <div
                 class="space-y-1.5 border-t border-black/8 pt-4 text-[10px] leading-4 text-black/40"
@@ -989,11 +985,7 @@
                 {#if currentAsset.previewError}<p>
                     {currentAsset.previewError}
                   </p>
-                  <button
-                    class="btn btn-ghost btn-xs"
-                    disabled={saving}
-                    onclick={retry}><RotateCw size={12} />重试预览</button
-                  >{/if}
+                {/if}
               </div>
               {#if selected.source}<a
                   href={selected.source}
@@ -1061,34 +1053,12 @@
           >{#if librarySession.busy}<span
               class="loading loading-spinner loading-xs"
             ></span>{:else}<Plus size={17} />{/if}</button
-        ><button
-          class="btn btn-ghost btn-sm btn-circle text-white/80"
-          aria-label="关联已有影像"
-          disabled={saving}
-          onclick={() => (linking = !linking)}><Link size={16} /></button
         >
         {#if selected.crop || currentAsset.crop}<button
             class="btn btn-ghost btn-sm text-[11px] font-normal text-white/85"
             onclick={() => (original = !original)}
             >{original ? "收藏封面" : "完整影像"}</button
           >{/if}
-        {#if linking}<div
-            class="glass-panel absolute bottom-full left-0 mb-3 w-full rounded-xl p-4 text-[#353a30]"
-          >
-            <SelectMenu
-              label="选择已有影像"
-              bind:value={linkedId}
-              options={[
-                { value: "", label: "选择文件（不复制原件）" },
-                ...otherAssets.map((a) => ({ value: a.id, label: a.filename })),
-              ]}
-            />
-            <button
-              class="btn btn-sm glass-dark rounded-full text-xs text-white"
-              disabled={!linkedId || saving}
-              onclick={associate}>关联到这张收藏</button
-            >
-          </div>{/if}
       </footer>
       {#if librarySession.busy}<p
           role="status"
@@ -1099,7 +1069,6 @@
     </div>
     <TaskCenter />
     {#if importOpen}<ImportSheet
-        version={!!targetAsset}
         attached={!!targetCheki}
         onsubmit={beginImport}
         onclose={() => (importOpen = false)}
