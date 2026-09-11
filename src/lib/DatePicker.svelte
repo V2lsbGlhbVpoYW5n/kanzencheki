@@ -5,7 +5,12 @@
   let {
     value = $bindable(""),
     label = "日期",
-  }: { value: string; label?: string } = $props();
+    onselect,
+  }: {
+    value?: string;
+    label?: string;
+    onselect?: (date: string) => void;
+  } = $props();
   let pop: Floating;
   let ready = $state(false);
   let typed = $state("");
@@ -21,8 +26,8 @@
         updated: Promise<void>;
       };
       await calendar.updated;
-      value = calendar.value;
-      pop.close();
+      choose(calendar.value);
+      if (onselect) calendar.value = "";
     };
     node.addEventListener("change", change);
     return {
@@ -30,6 +35,13 @@
         node.removeEventListener("change", change);
       },
     };
+  }
+  function choose(date: string) {
+    pop.close();
+    if (onselect) {
+      typed = "";
+      onselect(date);
+    } else value = date;
   }
   function apply() {
     const d = new Date(typed + "T00:00:00Z");
@@ -42,15 +54,14 @@
       invalid = true;
       return;
     }
-    value = typed;
     invalid = false;
-    pop.close();
+    choose(typed);
   }
 </script>
 
 <Floating bind:this={pop} {label} wide>
   {#snippet trigger()}<CalendarDays size={14} /><span class="flex-1 text-left"
-      >{value || "选择日期"}</span
+      >{onselect ? label : value || "选择日期"}</span
     >{/snippet}
   {#if ready}<calendar-date
       class="cally w-full bg-transparent"
@@ -74,13 +85,15 @@
           apply();
         }
       }}
-    /><button class="btn btn-ghost btn-sm" onclick={apply}>确定</button><button
-      class="btn btn-ghost btn-sm"
-      onclick={() => {
-        value = "";
-        pop.close();
-      }}>清除</button
-    >
+    /><button class="btn btn-ghost btn-sm" onclick={apply}
+      >{onselect ? "跳转" : "确定"}</button
+    >{#if !onselect}<button
+        class="btn btn-ghost btn-sm"
+        onclick={() => {
+          value = "";
+          pop.close();
+        }}>清除</button
+      >{/if}
   </div>
   {#if invalid}<p class="px-3 text-xs text-error">
       请输入有效日期，例如 2026-08-27

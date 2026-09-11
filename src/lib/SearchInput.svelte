@@ -1,26 +1,35 @@
 <script lang="ts">
   import { Search, X } from "@lucide/svelte";
   import { tick } from "svelte";
-  import { activeTag, completeTag } from "./search";
+  import { activeToken, completeToken } from "./search";
   import { normalize, unique } from "./model";
-  let { value = $bindable(""), tags = [] }: { value: string; tags: string[] } =
-    $props();
+  let {
+    value = $bindable(""),
+    tags = [],
+    people = [],
+    error = "",
+  }: {
+    value: string;
+    tags: string[];
+    people?: string[];
+    error?: string;
+  } = $props();
   let input: HTMLInputElement;
   let caret = $state(0);
   let focused = $state(false);
   let active = $state(0);
   const listId = $props.id();
-  let token = $derived(activeTag(value, caret));
+  let token = $derived(activeToken(value, caret));
   let choices = $derived(
     token
-      ? unique(tags)
+      ? unique(token.prefix === "@" ? people : tags)
           .filter((t) => normalize(t).includes(normalize(token!.term)))
           .slice(0, 7)
       : [],
   );
   async function select(tag: string) {
     if (!token) return;
-    const completed = completeTag(value, caret, tag);
+    const completed = completeToken(value, caret, tag);
     value = completed.value;
     caret = completed.caret;
     focused = false;
@@ -40,7 +49,7 @@
       }
       if (e.key === "Enter") {
         e.preventDefault();
-        select(choices[active]);
+        select(choices[Math.min(active, choices.length - 1)]);
       }
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -57,7 +66,9 @@
       bind:this={input}
       bind:value
       aria-label="搜索收藏"
-      placeholder="搜索人物、活动，或 #标签"
+      placeholder="@人物、#标签，或 AND / OR / NOT"
+      aria-invalid={!!error}
+      aria-describedby={error ? `${listId}-error` : undefined}
       role="combobox"
       aria-autocomplete="list"
       aria-expanded={focused && choices.length > 0}
@@ -74,7 +85,17 @@
         caret = input.selectionStart ?? value.length;
         focused = true;
       }}
-      onfocus={() => (focused = true)}
+      onkeyup={(e) => {
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+          caret = input.selectionStart ?? 0;
+          active = 0;
+          focused = true;
+        }
+      }}
+      onfocus={() => {
+        caret = input.selectionStart ?? value.length;
+        focused = true;
+      }}
       onblur={() => (focused = false)}
       onkeydown={key}
     />{#if value}<button
@@ -89,7 +110,7 @@
   {#if focused && choices.length}<div
       id={listId}
       role="listbox"
-      aria-label="搜索标签候选"
+      aria-label={token?.prefix === "@" ? "搜索人物候选" : "搜索标签候选"}
       class="glass-panel absolute bottom-full left-0 right-0 z-50 mb-2 max-h-52 overflow-auto rounded-xl p-1.5"
     >
       {#each choices as choice, i}<button
@@ -98,7 +119,14 @@
           aria-selected={active === i}
           class={`block w-full rounded-lg px-3 py-2 text-left text-xs ${active === i ? "bg-black/7" : ""}`}
           onpointerdown={(e) => e.preventDefault()}
-          onclick={() => select(choice)}>#{choice}</button
+          onclick={() => select(choice)}>{token?.prefix}{choice}</button
         >{/each}
     </div>{/if}
+  {#if error}<p
+      id={`${listId}-error`}
+      role="status"
+      class="mt-2 px-2 text-xs text-error"
+    >
+      {error}
+    </p>{/if}
 </div>

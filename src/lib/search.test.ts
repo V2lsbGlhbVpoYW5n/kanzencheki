@@ -5,6 +5,8 @@ import {
   matches,
   parseQuery,
   quotedTag,
+  completeToken,
+  activeToken,
 } from "./search";
 import { incomplete, metadata, type Cheki } from "./model";
 
@@ -31,7 +33,7 @@ describe("tag queries", () => {
   });
   it("round trips punctuation and whitespace in user entered tags", () => {
     for (const tag of ["夏日 演出", 'a"b', "a\\b", "a#b", "普通"]) {
-      expect(parseQuery(quotedTag(tag))).toEqual({ tags: [tag], words: [] });
+      expect(matches({ ...photo, tags: [tag] }, quotedTag(tag))).toBe(true);
     }
   });
   it("completes only the tag at the caret", () => {
@@ -72,4 +74,54 @@ it("uses group instead of people to complete a group shot", () => {
   expect(
     matches({ ...photo, shotType: "团切", group: "测试团体" }, "测试团体"),
   ).toBe(true);
+});
+
+describe("logical queries and people", () => {
+  it("uses NOT then AND then OR precedence, with grouping overrides", () => {
+    expect(matches(photo, "@小明 OR @不存在 AND #不存在")).toBe(true);
+    expect(matches(photo, "(@小明 OR @不存在) AND #不存在")).toBe(false);
+    expect(matches(photo, "@小明 AND NOT #不存在")).toBe(true);
+    expect(matches(photo, "NOT (@小明 OR #不存在)")).toBe(false);
+    expect(matches(photo, "not not @小明")).toBe(true);
+    expect(matches(photo, "@小明 NOT #不存在")).toBe(true);
+  });
+  it("matches exact people separately from notes and group names", () => {
+    expect(matches(photo, "@小")).toBe(false);
+    expect(matches(photo, "@小明 @小蓝")).toBe(true);
+    expect(matches({ ...photo, people: [], notes: "小明" }, "@小明")).toBe(
+      false,
+    );
+    expect(
+      matches({ ...photo, shotType: "团切", group: "小明" }, "@小明"),
+    ).toBe(false);
+    expect(matches({ ...photo, people: ["AND"] }, "@AND")).toBe(true);
+    expect(matches({ ...photo, notes: "AND" }, '"AND"')).toBe(true);
+  });
+  it("rejects incomplete or invalid expressions instead of widening results", () => {
+    for (const q of [
+      "@",
+      "#",
+      "@小明 OR",
+      "AND @小明",
+      "()",
+      "(@小明",
+      "@小明)",
+      '#"未完成',
+    ]) {
+      expect(parseQuery(q).error, q).not.toBe("");
+      expect(matches(photo, q), q).toBe(false);
+    }
+    expect(matches(photo, "")).toBe(true);
+  });
+  it("completes people inside parentheses without replacing neighboring conditions", () => {
+    expect(completeToken("(@小 OR #Stage)", 3, "小明").value).toBe(
+      "(@小明 OR #Stage)",
+    );
+    expect(completeToken("NOT @小蓝)", 6, "小 明").value).toBe(
+      'NOT @"小 明" )',
+    );
+    expect(activeToken('#"a@b"', 5)?.prefix).toBe("#");
+    expect(activeToken('"@小明"', 3)).toBeNull();
+    expect(activeToken('@"小 明"', 6)).toBeNull();
+  });
 });

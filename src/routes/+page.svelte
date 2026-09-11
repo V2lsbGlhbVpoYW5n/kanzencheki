@@ -8,7 +8,7 @@
   import { notify } from "$lib/tasks.svelte";
   import { trashChekis, catalogCommand } from "$lib/session.svelte";
   import { Trash2, CheckSquare, Settings2, Undo2 } from "@lucide/svelte";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import {
     Images,
     Heart,
@@ -46,16 +46,18 @@
     shotTypes,
     formatBytes,
   } from "$lib/model";
-  import { matches } from "$lib/search";
+  import { matchesParsed, parseQuery } from "$lib/search";
+  import { orderChekis, sortOptions, nearestDate } from "$lib/gallery-order";
   let photos = $derived(librarySession.photos);
   let mode = $state<"all" | "favorites" | "inbox" | "trash">("all");
   let inboxIds = $state<string[]>([]);
   let query = $state("");
-  let month = $state("");
+  let parsedQuery = $derived(parseQuery(query));
   let typeFilter = $state("");
   let size = $state(210);
   let labels = $state(true);
-  let ascending = $state(false);
+  let sort = $state("date");
+  let descending = $state(true);
   let filtersOpen = $state(false);
   let selectedId = $state<string | null>(null);
   let imageIndex = $state(0);
@@ -209,8 +211,8 @@
 
   let currentAsset = $derived(selected?.assets[imageIndex]);
   let visible = $derived(
-    photos
-      .filter(
+    orderChekis(
+      photos.filter(
         (c) =>
           (mode === "trash" ? !!c.deletedAt : !c.deletedAt) &&
           (mode === "favorites"
@@ -218,13 +220,12 @@
             : mode === "inbox"
               ? inboxIds.includes(c.id)
               : true) &&
-          (!month || c.date.startsWith(month)) &&
           (!typeFilter || c.shotType === typeFilter) &&
-          matches(c, query),
-      )
-      .sort((a, b) =>
-        ascending ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date),
+          matchesParsed(c, parsedQuery),
       ),
+      sort,
+      descending,
+    ),
   );
   let allTags = $derived(unique(photos.flatMap((c) => c.tags)).sort());
   let allPeople = $derived(
@@ -278,6 +279,24 @@
             ? undefined
             : c.crop,
     };
+  }
+  async function jumpToDate(date: string) {
+    if (!date || parsedQuery.error) return;
+    const target = nearestDate(visible, date);
+    if (!target) {
+      notify("当前结果中没有填写日期的收藏", "error");
+      return;
+    }
+    // Preserve the result set and sort order: date navigation is not a filter.
+    filtersOpen = false;
+    await tick();
+    const element = document.getElementById(`cheki-${target.id}`);
+    element?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth",
+      block: "start",
+    });
   }
   function open(c: Cheki) {
     selectedId = c.id;
@@ -483,7 +502,7 @@
       style:grid-template-columns={`repeat(auto-fill,minmax(min(${size}px,100%),1fr))`}
     >
       {#each visible as c (c.id)}
-        <div class="min-w-0">
+        <div id={`cheki-${c.id}`} class="min-w-0 scroll-mt-28 rounded-sm">
           <button
             class="relative block w-full rounded-sm text-left outline-offset-8 transition-transform duration-200 hover:-translate-y-1 focus-visible:outline-2 focus-visible:outline-[#798468] motion-reduce:transform-none"
             aria-label={`${selecting ? "选择" : "查看"} ${title(c)}`}
@@ -547,7 +566,6 @@
                 mode = "all";
                 inboxIds = [];
                 query = "";
-                month = "";
                 typeFilter = "";
               }}>查看全部收藏</button
             >{:else}<button
@@ -568,18 +586,53 @@
       class="glass-panel fixed bottom-[106px] left-1/2 z-30 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl p-5"
     >
       <div class="flex items-center gap-3">
-        <SearchInput bind:value={query} tags={allTags} /><button
+        <SearchInput
+          bind:value={query}
+          tags={allTags}
+          people={allPeople}
+          error={parsedQuery.error}
+        /><button
           class="btn btn-ghost btn-sm btn-circle"
           aria-label="收起搜索与筛选"
           onclick={() => (filtersOpen = false)}><X size={16} /></button
         >
       </div>
       <p class="mt-3 text-[10px] text-black/45">
-        #标签 精确匹配 · 多个标签同时满足 · 含空格可用 #"标签 名"
+        @人物 / #标签 精确匹配 · 空格默认为 AND · 优先级 NOT → AND → OR
+        <br />例：(@小明 OR @小蓝) AND NOT #重复 · 名称含空格用引号
       </p>
       <div
         class="mt-4 flex flex-wrap items-center gap-3 border-t border-black/8 pt-3"
       >
+        <div class="flex items-center gap-1">
+          <div class="w-40">
+            <SelectMenu
+              label="相册排序"
+              bind:value={sort}
+              options={sortOptions}
+            />
+          </div>
+          <button
+            class={`btn btn-ghost btn-sm btn-circle ${descending ? "bg-black/5" : ""}`}
+            aria-label={descending
+              ? "当前倒序，切换为正序"
+              : "当前正序，切换为倒序"}
+            title={sort === "date"
+              ? descending
+                ? "新到旧"
+                : "旧到新"
+              : descending
+                ? "名称倒序"
+                : "名称正序"}
+            aria-pressed={descending}
+            onclick={() => (descending = !descending)}
+          >
+            <ArrowDownWideNarrow
+              size={16}
+              class={descending ? "" : "rotate-180"}
+            />
+          </button>
+        </div>
         <div class="w-36">
           <SelectMenu
             label="拍摄类型筛选"
@@ -588,22 +641,11 @@
           />
         </div>
         <div class="w-36">
-          <SelectMenu
-            label="按月份筛选"
-            bind:value={month}
-            options={[
-              { value: "", label: "所有月份" },
-              ...unique(photos.map((c) => c.date.slice(0, 7)))
-                .filter(Boolean)
-                .sort()
-                .reverse(),
-            ]}
-          />
+          <DatePicker label="跳转到日期" onselect={jumpToDate} />
         </div>
         <button
           class="btn btn-ghost btn-xs ml-auto"
           onclick={() => {
-            month = "";
             typeFilter = "";
             query = "";
           }}>重置</button
@@ -722,15 +764,8 @@
       aria-label="切换照片标题"
       aria-pressed={labels}
       onclick={() => (labels = !labels)}><Info size={16} /></button
-    ><button
-      class="btn btn-ghost btn-sm btn-circle"
-      aria-label="切换日期排序"
-      onclick={() => (ascending = !ascending)}
-      ><ArrowDownWideNarrow
-        size={17}
-        class={ascending ? "rotate-180" : ""}
-      /></button
-    ><span class="h-5 border-l border-black/10"></span><button
+    >
+    <span class="h-5 border-l border-black/10"></span><button
       class="btn btn-sm glass-dark gap-2 rounded-full px-4 text-xs font-normal text-white"
       disabled={librarySession.busy || !librarySession.loaded}
       onclick={() => prepareImport()}><Plus size={15} />导入</button
