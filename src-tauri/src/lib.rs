@@ -2,8 +2,8 @@ mod media;
 mod storage;
 use std::sync::{Arc, Mutex};
 use storage::{
-    Crop, DocumentContent, DocumentDraft, ImportOptions, ImportReport, Library, Metadata, Person,
-    PersonDraft, PersonSpace, Store,
+    Crop, DocumentContent, DocumentDraft, ImageView, ImportOptions, ImportReport, Library,
+    Metadata, Person, PersonDraft, PersonSpace, Store,
 };
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -22,7 +22,11 @@ async fn work<T: Send + 'static>(
 }
 #[tauri::command]
 async fn library_load(state: State<'_, Backend>) -> Result<Library, String> {
-    work(state.inner().clone(), |s| s.list()).await
+    work(state.inner().clone(), |s| {
+        s.recover_rotations()?;
+        s.list()
+    })
+    .await
 }
 #[tauri::command]
 async fn cheki_update(
@@ -196,6 +200,37 @@ async fn cheki_merge(
         s.merge_many(&target, &sources)
     })
     .await
+}
+#[tauri::command]
+async fn asset_rotate(state: State<'_, Backend>, asset_id: String) -> Result<Library, String> {
+    work(state.inner().clone(), move |s| s.rotate(&asset_id)).await
+}
+#[tauri::command]
+async fn crop_preview(
+    state: State<'_, Backend>,
+    asset_id: String,
+    crop: Crop,
+) -> Result<Vec<u8>, String> {
+    work(state.inner().clone(), move |s| {
+        s.crop_preview(&asset_id, crop)
+    })
+    .await
+}
+#[tauri::command]
+async fn asset_view(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    asset_id: String,
+) -> Result<ImageView, String> {
+    let view = work(state.inner().clone(), move |s| s.image_view(&asset_id)).await?;
+    app.asset_protocol_scope()
+        .allow_file(&view.path)
+        .map_err(|e| e.to_string())?;
+    Ok(view)
+}
+#[tauri::command]
+async fn asset_view_release(state: State<'_, Backend>, path: String) -> Result<(), String> {
+    work(state.inner().clone(), move |s| s.release_view(&path)).await
 }
 #[tauri::command]
 async fn asset_crop(
@@ -493,6 +528,10 @@ pub fn run() {
             cheki_cover,
             cheki_merge,
             asset_crop,
+            asset_rotate,
+            crop_preview,
+            asset_view,
+            asset_view_release,
             crop_suggest,
         ])
         .run(tauri::generate_context!())

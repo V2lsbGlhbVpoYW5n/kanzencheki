@@ -25,6 +25,8 @@
     Link,
     RotateCw,
   } from "@lucide/svelte";
+  import { appearance } from "$lib/appearance.svelte";
+  import ImageViewer from "$lib/ImageViewer.svelte";
   import PhotoImage from "$lib/Photo.svelte";
   import TokenInput from "$lib/TokenInput.svelte";
   import PersonPicker from "$lib/PersonPicker.svelte";
@@ -213,6 +215,7 @@
   let importTarget: string | null = null;
   let selected = $derived(photos.find((c) => c.id === selectedId));
 
+  let fullView = $state(false);
   let currentAsset = $derived(selected?.assets[imageIndex]);
   let visible = $derived(
     orderChekis(
@@ -229,6 +232,7 @@
       ),
       sort,
       descending,
+      photos,
     ),
   );
   let allTags = $derived(unique(photos.flatMap((c) => c.tags)).sort());
@@ -521,10 +525,8 @@
                 ? ((selecting = true), toggle(c, e))
                 : open(c)}
           >
-            <div
-              class="aspect-[3/4] overflow-hidden bg-surface shadow-[0_2px_4px_#00000010,0_12px_22px_-12px_#00000040]"
-            >
-              <PhotoImage photo={coverPhoto(c, desktop)} />
+            <div class="aspect-square overflow-hidden rounded-sm bg-surface/5">
+              <PhotoImage photo={coverPhoto(c, desktop)} fit={appearance.fit} />
             </div>
             {#if selecting}<span
                 class={`absolute left-3 top-3 flex h-6 w-6 items-center justify-center rounded-full shadow ${checked.includes(c.id) ? "bg-[#697957] text-white" : "glass-panel"}`}
@@ -630,9 +632,13 @@
               ? descending
                 ? "新到旧"
                 : "旧到新"
-              : descending
-                ? "名称倒序"
-                : "名称正序"}
+              : sort === "meetings"
+                ? descending
+                  ? "见面天数：多到少（团切最后）"
+                  : "见面天数：少到多（团切最后）"
+                : descending
+                  ? "名称倒序"
+                  : "名称正序"}
             aria-pressed={descending}
             onclick={() => (descending = !descending)}
           >
@@ -896,10 +902,21 @@
       </header>
       <div class="flex min-h-0 flex-1 items-center justify-center gap-8 py-5">
         <div
-          class="pointer-events-auto flex h-full min-w-0 flex-col items-center justify-center"
+          class="pointer-events-auto flex h-full min-w-0 flex-1 flex-col items-center justify-center"
         >
           <div
-            class="aspect-[3/4] min-h-0 max-w-[48vw] overflow-hidden bg-canvas shadow-[0_25px_65px_-15px_#30372a65,0_2px_8px_#00000015]"
+            class="min-h-0 w-full max-w-[760px] cursor-zoom-in overflow-hidden bg-transparent"
+            role="button"
+            tabindex="0"
+            aria-label="全窗口查看图像"
+            onclick={() => (fullView = true)}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                fullView = true;
+              }
+            }}
             style:height="min(100%,660px)"
           >
             <PhotoImage
@@ -1140,6 +1157,14 @@
           正在保存原件并生成预览…
         </p>{/if}
     </div>
+    {#if fullView}<ImageViewer
+        asset={currentAsset}
+        displayCrop={coverPhoto(
+          { ...selected, coverAssetId: currentAsset.id },
+          desktop,
+        ).crop}
+        onclose={() => (fullView = false)}
+      />{/if}
     <TaskCenter />
     {#if importOpen}<ImportSheet
         attached={!!targetCheki}

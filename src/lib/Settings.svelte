@@ -12,6 +12,7 @@
   import {
     appearance,
     setAppearance,
+    setImageFit,
     type Appearance,
   } from "./appearance.svelte";
   import SelectMenu from "./SelectMenu.svelte";
@@ -132,6 +133,27 @@
             { value: "system", label: "跟随系统" },
             { value: "light", label: "浅色" },
             { value: "dark", label: "深色" },
+          ]}
+        />
+      </div>
+    </section>
+    <section
+      class="mb-6 flex items-center justify-between gap-6 rounded-2xl bg-surface/25 p-4"
+    >
+      <div>
+        <h2 class="text-sm">相册图片展示</h2>
+        <p class="mt-1 text-xs text-ink/45">
+          完整显示保留边缘；铺满会隐藏部分边缘
+        </p>
+      </div>
+      <div class="w-40">
+        <SelectMenu
+          label="图片展示方式"
+          value={appearance.fit}
+          onchange={(v) => setImageFit(v as "cover" | "contain")}
+          options={[
+            { value: "contain", label: "完整显示" },
+            { value: "cover", label: "铺满" },
           ]}
         />
       </div>

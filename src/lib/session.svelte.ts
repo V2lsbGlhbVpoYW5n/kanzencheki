@@ -151,9 +151,9 @@ export async function catalogCommand(
   command: string,
   args: Record<string, unknown> = {},
 ) {
-  const processing = ["asset_crop"].includes(command);
+  const processing = ["asset_crop", "asset_rotate"].includes(command);
   const taskId = processing
-    ? startTask(command === "asset_crop" ? "保存裁切" : "生成浏览图")
+    ? startTask(command === "asset_crop" ? "保存裁切" : "旋转原件与浏览图")
     : null;
   if (taskId)
     updateTask({

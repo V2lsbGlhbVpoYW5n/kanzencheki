@@ -1,14 +1,18 @@
 use super::*;
-use image::{imageops::FilterType, GenericImageView};
+use image::imageops::FilterType;
 use rusqlite::OptionalExtension;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Crop {
     pub x: f64,
     pub y: f64,
     pub w: f64,
     pub h: f64,
+    #[serde(default)]
+    pub quad: Option<[Point; 4]>,
+    #[serde(default)]
+    pub ratio: Option<f64>,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -350,6 +354,9 @@ impl Store {
         while let Some(dir) = dirs.pop() {
             for item in fs::read_dir(dir)? {
                 let item = item?;
+                if item.file_name().to_string_lossy().starts_with(".cheki-") {
+                    continue;
+                }
                 let ty = item.file_type()?;
                 if ty.is_symlink() {
                     continue;
@@ -402,7 +409,7 @@ impl Store {
         }
         result
     }
-    fn generated(&self, asset: &str, role: &str, path: &str) -> Result<()> {
+    pub(super) fn generated(&self, asset: &str, role: &str, path: &str) -> Result<()> {
         let old: Option<String> = self
             .db
             .query_row(
@@ -443,7 +450,7 @@ impl Store {
             .execute("UPDATE assets SET preview_error=NULL WHERE id=?1", [asset])?;
         Ok(())
     }
-    fn render_crop(&mut self, asset: &str, crop: Option<&Crop>) -> Result<()> {
+    pub(super) fn render_crop(&mut self, asset: &str, crop: Option<&Crop>) -> Result<()> {
         let base: String = self
             .db
             .query_row(
@@ -462,19 +469,7 @@ impl Store {
                 .optional()?)
             .context("暂无本机预览，连接原件后生成")?;
         let image = image::open(self.root.join(base))?;
-        let (w, h) = image.dimensions();
-        let output = if let Some(c) = crop {
-            let x = ((c.x * w as f64).floor() as u32).min(w - 1);
-            let y = ((c.y * h as f64).floor() as u32).min(h - 1);
-            image.crop_imm(
-                x,
-                y,
-                ((c.w * w as f64).floor() as u32).max(1).min(w - x),
-                ((c.h * h as f64).floor() as u32).max(1).min(h - y),
-            )
-        } else {
-            image
-        };
+        let output = super::geometry::apply_crop(image, crop)?;
         let path = format!("previews/{asset}-display-{}.jpg", id());
         output.to_rgb8().save(self.root.join(&path))?;
         self.generated(asset, "display", &path)?;
@@ -494,16 +489,7 @@ impl Store {
     }
     pub fn crop(&mut self, asset: &str, crop: Option<Crop>) -> Result<Library> {
         if let Some(ref c) = crop {
-            if [c.x, c.y, c.w, c.h].iter().any(|v| !v.is_finite())
-                || c.x < 0.0
-                || c.y < 0.0
-                || c.w < 0.01
-                || c.h < 0.01
-                || c.x + c.w > 1.000001
-                || c.y + c.h > 1.000001
-            {
-                bail!("裁切区域超出图像");
-            }
+            super::geometry::validate_crop(c)?;
         }
         // Reuse the unedited local cache: cropping works even while the disk is offline.
         let has_base: bool = self.db.query_row(
@@ -574,6 +560,7 @@ impl Store {
             y: y / h as f64,
             w: cw / w as f64,
             h: ch / h as f64,
+            ..Default::default()
         })
     }
 }
@@ -633,6 +620,7 @@ mod tests {
             y: 0.1,
             w: 0.6,
             h: 0.8,
+            ..Default::default()
         };
         s.crop(&aid, Some(crop)).unwrap();
         assert!(s.refresh_preview(&aid).is_err());
@@ -759,6 +747,7 @@ mod tests {
                     y: 0.99,
                     w: 0.01,
                     h: 0.01,
+                    ..Default::default()
                 }),
             )
             .unwrap();
@@ -782,7 +771,8 @@ mod tests {
                     x: 0.8,
                     y: 0.0,
                     w: 0.5,
-                    h: 1.0
+                    h: 1.0,
+                    ..Default::default()
                 })
             )
             .is_err());
@@ -793,6 +783,7 @@ mod tests {
                 y: 0.1,
                 w: 0.5,
                 h: 0.5,
+                ..Default::default()
             }),
         )
         .unwrap();

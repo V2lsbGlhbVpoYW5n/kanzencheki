@@ -98,7 +98,13 @@ export function formatBytes(n: number) {
       : `${(n / 1024).toFixed(1)} KB`;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
 export interface Crop {
+  quad?: [Point, Point, Point, Point] | null;
+  ratio?: number | null;
   x: number;
   y: number;
   w: number;

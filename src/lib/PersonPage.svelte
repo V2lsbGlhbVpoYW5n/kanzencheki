@@ -65,13 +65,7 @@
       .filter(Boolean)
       .sort()[0],
   );
-  let days = $derived(
-    first
-      ? Math.floor(
-          (Date.now() - new Date(first + "T00:00:00").getTime()) / 86400000,
-        )
-      : null,
-  );
+  let days = $derived(new Set(chekis.map((c) => c.date).filter(Boolean)).size);
   let section = $state<"chekis" | "files" | "documents">(
       page.url.searchParams.get("section") === "documents"
         ? "documents"
@@ -306,7 +300,7 @@
                 class="ml-1 text-xs text-ink/40">天</span
               >
             </p>
-            <p class="mt-2 text-[11px] text-ink/40">距今</p>
+            <p class="mt-2 text-[11px] text-ink/40">见面天数</p>
           </div>
           <div>
             <p class="text-base tabular-nums">

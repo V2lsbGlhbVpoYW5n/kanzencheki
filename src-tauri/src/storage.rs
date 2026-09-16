@@ -1,4 +1,8 @@
 mod catalog;
+mod editing;
+mod geometry;
+pub use editing::ImageView;
+pub use geometry::Point;
 mod lifecycle;
 mod people;
 use anyhow::{bail, Context, Result};
@@ -208,7 +212,14 @@ impl Store {
             .write(true)
             .open(root.join("library.lock"))?;
         lock.try_lock().context("此图库已被另一个程序实例打开")?;
-        for dir in ["originals", "previews", "staging", "people"] {
+        for dir in [
+            "originals",
+            "previews",
+            "staging",
+            "people",
+            "rotations",
+            "views",
+        ] {
             fs::create_dir_all(root.join(dir))?;
         }
         let db = Connection::open(root.join("library.sqlite"))?;
@@ -240,6 +251,7 @@ impl Store {
         store.migrate(version)?;
         store.migrate_people()?;
         store.recover_document_writes()?;
+        store.recover_rotations()?;
         store.recover_renames()?;
         // A durable import manifest bridges the filesystem and SQLite transaction.
         for entry in fs::read_dir(store.root.join("staging"))? {
@@ -255,6 +267,12 @@ impl Store {
             let entry = entry?;
             if entry.file_type()?.is_file() && entry.path().extension().is_some_and(|e| e == "part")
             {
+                fs::remove_file(entry.path())?;
+            }
+        }
+        for entry in fs::read_dir(store.root.join("views"))? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
                 fs::remove_file(entry.path())?;
             }
         }

@@ -180,17 +180,6 @@
     >
 
     <button
-      class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20" : ""}`}
-      aria-label="批量选择人物"
-      aria-pressed={selecting}
-      disabled={busy}
-      onclick={() => {
-        selecting = !selecting;
-        selected = [];
-        confirmed = false;
-      }}><CheckSquare size={16} /></button
-    >
-    <button
       class="btn glass-dark btn-sm rounded-full text-xs font-normal text-white"
       onclick={() => {
         duplicate =
@@ -204,6 +193,17 @@
       librarySession.people.some((p) => normalize(p.name) === normalize(query))
         ? "创建同名人物"
         : "新建人物"}</button
+    >
+    <button
+      class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20" : ""}`}
+      aria-label="批量选择人物"
+      aria-pressed={selecting}
+      disabled={busy}
+      onclick={() => {
+        selecting = !selecting;
+        selected = [];
+        confirmed = false;
+      }}><CheckSquare size={16} /></button
     >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${trash ? "bg-[#b28b83]/20 text-danger-ink" : ""}`}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Crop as CropIcon, Star, Trash2 } from "@lucide/svelte";
+  import { Crop as CropIcon, Star, Trash2, RotateCw } from "@lucide/svelte";
   import type { Asset, Cheki } from "./model";
   import { formatBytes } from "./model";
   import { desktop, catalogCommand, librarySession } from "./session.svelte";
@@ -18,6 +18,21 @@
     asset.id;
     confirming = false;
   });
+  async function rotate() {
+    if (busy) return;
+    busy = true;
+    try {
+      if (!desktop) {
+        notify("写入原件的旋转请使用桌面版", "error");
+        return;
+      }
+      await catalogCommand("asset_rotate", { assetId: asset.id });
+      notify("原件与浏览图已顺时针旋转 90°");
+    } catch {
+    } finally {
+      busy = false;
+    }
+  }
   async function cover(assetId: string | null) {
     busy = true;
     try {
@@ -78,7 +93,15 @@
     <button
       class="btn btn-ghost btn-xs"
       disabled={!asset.src || busy}
-      onclick={() => (cropping = true)}><CropIcon size={12} />裁切</button
+      onclick={() => (cropping = true)}
+      ><CropIcon size={12} />裁切 / 变形</button
+    >
+    <button
+      class="btn btn-ghost btn-xs"
+      disabled={busy || source?.available === false}
+      title="将原件及所有浏览图顺时针旋转 90°"
+      onclick={rotate}
+      ><RotateCw size={12} />{busy ? "处理中…" : "顺时针旋转"}</button
     >
     <button
       class="btn btn-ghost btn-xs"
@@ -91,6 +114,9 @@
         onclick={() => cover(null)}>自动择优</button
       >{/if}
   </div>
+  <p class="text-[10px] text-ink/40">
+    裁切与变形保留原件；旋转写回原件，JPEG 会重新编码。
+  </p>
   <div class="space-y-2 rounded-xl bg-surface/20 p-3 text-[11px] text-ink/45">
     <p class="break-all">{asset.filename}</p>
     <p>
