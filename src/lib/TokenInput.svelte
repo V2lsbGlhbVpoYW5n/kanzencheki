@@ -68,13 +68,13 @@
 
 <div class="relative">
   <div
-    class="flex flex-wrap items-center gap-1.5 rounded-xl bg-white/25 p-2 shadow-[inset_0_1px_3px_#28301e12] focus-within:ring-1 focus-within:ring-[#8b977d]/40"
+    class="flex flex-wrap items-center gap-1.5 rounded-xl bg-surface/25 p-2 shadow-[inset_0_1px_3px_#28301e12] focus-within:ring-1 focus-within:ring-[#8b977d]/40"
   >
     {#each values as value}<span
-        class="flex max-w-full items-center gap-1 rounded-md bg-[#dce2d2]/65 px-2 py-1 text-[11px]"
+        class="flex max-w-full items-center gap-1 rounded-md bg-tint/65 px-2 py-1 text-[11px]"
         ><span class="truncate">{prefix}{value}</span><button
           type="button"
-          class="shrink-0 rounded hover:bg-black/10"
+          class="shrink-0 rounded hover:bg-ink/10"
           aria-label={`移除${label} ${value}`}
           onclick={() => (values = values.filter((v) => v !== value))}
           ><X size={11} /></button

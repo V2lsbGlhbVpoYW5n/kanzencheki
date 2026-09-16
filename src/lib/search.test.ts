@@ -3,6 +3,7 @@ import {
   activeTag,
   completeTag,
   matches,
+  matchesParsed,
   parseQuery,
   quotedTag,
   completeToken,
@@ -124,4 +125,15 @@ describe("logical queries and people", () => {
     expect(activeToken('"@小明"', 3)).toBeNull();
     expect(activeToken('@"小 明"', 6)).toBeNull();
   });
+});
+
+it("searches person aliases and disambiguated names through IDs", () => {
+  const people = [
+    {id:"one",name:"小明",description:"团A",aliases:["以前的名字"],notes:"",deletedAt:null,createdAt:""},
+    {id:"two",name:"小明",description:"团B",aliases:[],notes:"",deletedAt:null,createdAt:""},
+  ];
+  const c={...photo,people:["小明"],peopleIds:["one"]};
+  expect(matchesParsed(c,parseQuery("@以前的名字"),people)).toBe(true);
+  expect(matchesParsed(c,parseQuery('@"小明 · 团A"'),people)).toBe(true);
+  expect(matchesParsed(c,parseQuery('@"小明 · 团B"'),people)).toBe(false);
 });

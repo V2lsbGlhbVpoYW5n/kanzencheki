@@ -2,7 +2,7 @@
   import { Search, X } from "@lucide/svelte";
   import { tick } from "svelte";
   import { activeToken, completeToken } from "./search";
-  import { normalize, unique } from "./model";
+  import { normalize, unique, personLabel, type Person } from "./model";
   let {
     value = $bindable(""),
     tags = [],
@@ -11,7 +11,7 @@
   }: {
     value: string;
     tags: string[];
-    people?: string[];
+    people?: Person[];
     error?: string;
   } = $props();
   let input: HTMLInputElement;
@@ -20,13 +20,7 @@
   let active = $state(0);
   const listId = $props.id();
   let token = $derived(activeToken(value, caret));
-  let choices = $derived(
-    token
-      ? unique(token.prefix === "@" ? people : tags)
-          .filter((t) => normalize(t).includes(normalize(token!.term)))
-          .slice(0, 7)
-      : [],
-  );
+  let choices = $derived(token ? (token.prefix === "@" ? people.filter(p=>!p.deletedAt && [p.name,p.description,...p.aliases].some(n=>normalize(n).includes(normalize(token!.term)))).map(personLabel) : unique(tags).filter(t=>normalize(t).includes(normalize(token!.term)))).slice(0,7) : []);
   async function select(tag: string) {
     if (!token) return;
     const completed = completeToken(value, caret, tag);
@@ -61,7 +55,7 @@
 
 <div class="relative flex-1">
   <label
-    class="input input-sm h-10 w-full rounded-full border-transparent bg-white/35 px-4 shadow-[inset_0_1px_3px_#28301e12]"
+    class="input input-sm h-10 w-full rounded-full border-transparent bg-surface/35 px-4 shadow-[inset_0_1px_3px_#28301e12]"
     ><Search size={15} /><input
       bind:this={input}
       bind:value

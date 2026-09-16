@@ -3,6 +3,7 @@ export type ShotType = (typeof shotTypes)[number];
 export interface Metadata {
   date: string;
   people: string[];
+  peopleIds?: string[];
   group: string;
   event: string;
   tags: string[];
@@ -51,6 +52,7 @@ export interface Library {
   root: string;
   chekis: Cheki[];
   locations: Location[];
+  people: Person[];
 }
 export function incomplete(c: Metadata) {
   return (
@@ -78,6 +80,8 @@ export function metadata(c: Metadata): Metadata {
   return {
     date: c.date,
     people: c.shotType === "团切" ? [] : [...c.people],
+    peopleIds:
+      c.shotType === "团切" ? [] : c.peopleIds ? [...c.peopleIds] : undefined,
     group: c.group || "",
     event: c.event,
     tags: [...c.tags],
@@ -106,4 +110,75 @@ export interface Location {
   name: string;
   online: boolean;
   managed: boolean;
+}
+
+export interface Person {
+  id: string;
+  name: string;
+  description: string;
+  aliases: string[];
+  notes: string;
+  deletedAt: string | null;
+  createdAt: string;
+}
+export interface PersonDraft {
+  id?: string;
+  name: string;
+  description: string;
+  aliases: string[];
+  notes: string;
+  allowDuplicate?: boolean;
+}
+export interface PersonFile {
+  id: string;
+  personId: string;
+  filename: string;
+  originalFilename: string;
+  src: string;
+  mimeType: string;
+  byteSize: number;
+  createdAt: string;
+  available: boolean;
+}
+export interface PersonDocument {
+  id: string;
+  personId: string;
+  title: string;
+  filename: string;
+  updatedAt: string;
+}
+export interface PersonSpace {
+  files: PersonFile[];
+  documents: PersonDocument[];
+}
+export function personLabel(p: Person) {
+  return (
+    p.name +
+    (p.description ? ` · ${p.description}` : "") +
+    (p.deletedAt ? "（已删除）" : "")
+  );
+}
+
+/** The visible name is the actual filename; the import name remains separate metadata. */
+export function fileLabel(file: PersonFile): string {
+  return file.filename;
+}
+
+export function coverPhoto(c: Cheki, desktop: boolean) {
+  const a = c.assets.find((a) => a.id === c.coverAssetId) || c.assets[0];
+  return {
+    src: a?.src || "",
+    title: title(c),
+    crop:
+      !desktop && a?.crop
+        ? {
+            x: a.crop.x * 100,
+            y: a.crop.y * 100,
+            w: a.crop.w * 100,
+            h: a.crop.h * 100,
+          }
+        : a?.crop === null
+          ? undefined
+          : c.crop,
+  };
 }

@@ -43,6 +43,7 @@ export const librarySession = $state<{
   photos: Cheki[];
   root: string;
   locations: import("./model").Location[];
+  people: import("./model").Person[];
   loaded: boolean;
   busy: boolean;
   error: string;
@@ -50,11 +51,12 @@ export const librarySession = $state<{
   photos: desktop ? [] : samples(),
   root: "",
   locations: [],
+  people: [],
   loaded: !desktop,
   busy: false,
   error: "",
 });
-function receive(library: Library) {
+export function receive(library: Library) {
   librarySession.photos = library.chekis.map((c) => ({
     ...c,
     assets: c.assets.map((a) => ({
@@ -64,8 +66,14 @@ function receive(library: Library) {
     })),
   }));
   librarySession.locations = library.locations;
+  librarySession.people = library.people;
   librarySession.root = library.root;
   librarySession.loaded = true;
+}
+if (!desktop) {
+  const names = [...new Set(librarySession.photos.flatMap(c => c.people))];
+  librarySession.people = names.map((name,i)=>({id:`demo-person-${i}`,name,description:"",aliases:[],notes:"",deletedAt:null,createdAt:new Date().toISOString()}));
+  for(const c of librarySession.photos) c.peopleIds=c.people.map(name=>librarySession.people.find(p=>p.name===name)!.id);
 }
 export async function loadLibrary(force = false) {
   await watchTasks();

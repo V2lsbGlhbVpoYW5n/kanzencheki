@@ -35,6 +35,7 @@
     },
     "github:nix-community/nixGL#nixGLIntel": "",
     "imagemagick":                           "latest",
+    "ffmpeg": "latest",
     "rustfmt":                               "latest"
   },
   "env": {

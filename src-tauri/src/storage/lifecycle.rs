@@ -343,7 +343,7 @@ mod tests {
         let a = s.list().unwrap().chekis[0].assets[0].id.clone();
         fs::copy(&p, root.join("originals/old-version.png")).unwrap();
         s.db.execute("INSERT INTO renditions(id,asset_id,role,relative_path,mime_type,byte_size,width,height) VALUES('legacy',?1,'version:legacy','originals/old-version.png','image/png',100,40,60)",[&a]).unwrap();
-        s.db.execute_batch("ALTER TABLE pending_renames RENAME TO rename_v3; CREATE TABLE pending_renames(old_path TEXT PRIMARY KEY,new_path TEXT NOT NULL); DROP TABLE rename_v3; CREATE TABLE pending_previews(asset_id TEXT PRIMARY KEY REFERENCES assets(id)); PRAGMA user_version=2;").unwrap();
+        s.db.execute_batch("ALTER TABLE pending_renames RENAME TO rename_v3; CREATE TABLE pending_renames(old_path TEXT PRIMARY KEY,new_path TEXT NOT NULL); DROP TABLE rename_v3; CREATE TABLE pending_previews(asset_id TEXT PRIMARY KEY REFERENCES assets(id)); ALTER TABLE people DROP COLUMN description; ALTER TABLE people DROP COLUMN aliases_json; ALTER TABLE people DROP COLUMN notes; ALTER TABLE people DROP COLUMN deleted_at; ALTER TABLE people DROP COLUMN created_at; DROP TABLE person_files; DROP TABLE person_documents; DROP TABLE document_writes; PRAGMA user_version=2;").unwrap();
         drop(s);
         let s = Store::open(root).unwrap();
         let c = s.list().unwrap().chekis.remove(0);

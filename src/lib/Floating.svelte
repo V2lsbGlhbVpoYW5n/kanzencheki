@@ -5,7 +5,7 @@
     children,
     trigger,
     wide = false,
-    buttonClass = "input input-sm w-full border-0 bg-white/25 text-xs",
+    buttonClass = "input input-sm w-full border-0 bg-surface/25 text-xs",
     disabled = false,
   }: {
     label: string;
@@ -59,7 +59,7 @@
   {id}
   popover="auto"
   ontoggle={opened}
-  class="glass-panel right-auto bottom-auto m-0 max-h-[min(420px,80vh)] overflow-auto rounded-2xl border-0 p-2 text-[#353a30] shadow-xl"
+  class="glass-panel right-auto bottom-auto m-0 max-h-[min(420px,80vh)] overflow-auto rounded-2xl border-0 p-2 text-base-content shadow-xl"
   style:position="fixed"
   style:left={`${left}px`}
   style:top={`${top}px`}

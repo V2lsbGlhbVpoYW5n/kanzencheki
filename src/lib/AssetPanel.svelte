@@ -63,10 +63,10 @@
   }
 </script>
 
-<div class="space-y-4 border-t border-black/8 pt-4">
+<div class="space-y-4 border-t border-ink/8 pt-4">
   <div class="flex items-center justify-between">
     <h3 class="text-xs">当前影像</h3>
-    <span class="text-[10px] text-black/40"
+    <span class="text-[10px] text-ink/40"
       >{cheki.coverAssetId === asset.id
         ? cheki.coverManual
           ? "指定封面"
@@ -91,7 +91,7 @@
         onclick={() => cover(null)}>自动择优</button
       >{/if}
   </div>
-  <div class="space-y-2 rounded-xl bg-white/20 p-3 text-[11px] text-black/45">
+  <div class="space-y-2 rounded-xl bg-surface/20 p-3 text-[11px] text-ink/45">
     <p class="break-all">{asset.filename}</p>
     <p>
       {asset.width && asset.height
@@ -108,7 +108,7 @@
         仍可浏览已保存的本机预览。需要原件的操作会失败，请先连接目录。
       </p>{/if}
   </div>
-  <div class="border-t border-black/8 pt-4">
+  <div class="border-t border-ink/8 pt-4">
     {#if confirming}<p class="mb-3 text-xs leading-5 text-error">
         从此收藏删除这份影像。不再被其他收藏使用的原件会移入系统回收站，浏览缓存会清除。{cheki
           .assets.length === 1

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import TaskCenter from "$lib/TaskCenter.svelte";
   import Settings from "$lib/Settings.svelte";
   import ImportSheet from "$lib/ImportSheet.svelte";
@@ -26,6 +27,8 @@
   } from "@lucide/svelte";
   import PhotoImage from "$lib/Photo.svelte";
   import TokenInput from "$lib/TokenInput.svelte";
+  import PersonPicker from "$lib/PersonPicker.svelte";
+  import { page } from "$app/state";
   import SearchInput from "$lib/SearchInput.svelte";
   import {
     librarySession,
@@ -36,6 +39,7 @@
     importDesktop,
   } from "$lib/session.svelte";
   import {
+    coverPhoto,
     type Cheki,
     type Metadata,
     type Asset,
@@ -202,7 +206,7 @@
     }
   }
 
-  let peopleInput = $state<TokenInput>();
+  let peopleInput = $state<PersonPicker>();
   let tagsInput = $state<TokenInput>();
   let input: HTMLInputElement;
   let imageInput = $state<HTMLInputElement>();
@@ -221,7 +225,7 @@
               ? inboxIds.includes(c.id)
               : true) &&
           (!typeFilter || c.shotType === typeFilter) &&
-          matchesParsed(c, parsedQuery),
+          matchesParsed(c, parsedQuery, librarySession.people),
       ),
       sort,
       descending,
@@ -243,6 +247,17 @@
   $effect(() => {
     if (selectedId && viewer && !viewer.open) viewer.showModal();
   });
+  let openedReference = $state("");
+  $effect(() => {
+    const id = page.url.searchParams.get("cheki");
+    if (id && librarySession.loaded && openedReference !== id) {
+      const c = photos.find((c) => c.id === id);
+      if (c) {
+        openedReference = id;
+        open(c);
+      }
+    }
+  });
   onMount(() => {
     void loadLibrary();
     const timer = setInterval(() => {
@@ -261,24 +276,6 @@
         .filter((c) => !c.deletedAt && incomplete(c))
         .map((c) => c.id);
     else inboxIds = [];
-  }
-  function cover(c: Cheki) {
-    const a = c.assets.find((a) => a.id === c.coverAssetId) || c.assets[0];
-    return {
-      src: a?.src || "",
-      title: title(c),
-      crop:
-        !desktop && a?.crop
-          ? {
-              x: a.crop.x * 100,
-              y: a.crop.y * 100,
-              w: a.crop.w * 100,
-              h: a.crop.h * 100,
-            }
-          : a?.crop === null
-            ? undefined
-            : c.crop,
-    };
   }
   async function jumpToDate(date: string) {
     if (!date || parsedQuery.error) return;
@@ -301,6 +298,7 @@
   function open(c: Cheki) {
     selectedId = c.id;
     draft = metadata(c);
+    draft.peopleIds ??= [];
     initial = JSON.stringify(draft);
     imageIndex = Math.max(
       0,
@@ -326,10 +324,21 @@
     selectedId = null;
     draft = null;
     error = "";
+    const origin = page.url.searchParams.get("returnTo");
+    if (
+      origin &&
+      /^\/people\/[a-zA-Z0-9-]+(?:\?section=(?:chekis|files|documents))?$/.test(
+        origin,
+      )
+    )
+      void goto(origin, { replaceState: true });
   }
   async function save() {
     if (!selected || !draft || saving || librarySession.busy) return;
-    peopleInput?.flush();
+    if (peopleInput && !peopleInput.flush()) {
+      error = "请先选择或创建输入的人物";
+      return;
+    }
     tagsInput?.flush();
     saving = true;
     error = "";
@@ -471,9 +480,9 @@
 />
 <main
   aria-label="全览相册"
-  class="h-screen overflow-y-auto bg-[#eeede8] text-[#3c4037]"
+  class="h-screen overflow-y-auto bg-canvas text-base-content"
 >
-  <div class="absolute left-8 top-8 text-xs text-black/50 sm:left-12">
+  <div class="absolute left-8 top-8 text-xs text-ink/50 sm:left-12">
     <span
       >{mode === "inbox"
         ? "Inbox"
@@ -482,7 +491,7 @@
           : mode === "favorites"
             ? "喜欢"
             : "全部收藏"}</span
-    ><span class="ml-3 text-black/30">{visible.length}</span>
+    ><span class="ml-3 text-ink/30">{visible.length}</span>
   </div>
   <section class="px-8 pb-36 pt-28 sm:px-12" aria-label="收藏网格">
     {#if librarySession.error || (error && !selected)}<div
@@ -513,16 +522,16 @@
                 : open(c)}
           >
             <div
-              class="aspect-[3/4] overflow-hidden bg-white shadow-[0_2px_4px_#00000010,0_12px_22px_-12px_#00000040]"
+              class="aspect-[3/4] overflow-hidden bg-surface shadow-[0_2px_4px_#00000010,0_12px_22px_-12px_#00000040]"
             >
-              <PhotoImage photo={cover(c)} />
+              <PhotoImage photo={coverPhoto(c, desktop)} />
             </div>
             {#if selecting}<span
                 class={`absolute left-3 top-3 flex h-6 w-6 items-center justify-center rounded-full shadow ${checked.includes(c.id) ? "bg-[#697957] text-white" : "glass-panel"}`}
                 ><Check size={14} /></span
               >{/if}
             {#if c.favorite}<span
-                class="glass-panel absolute bottom-3 right-3 rounded-full p-1.5 text-[#8b655f]"
+                class="glass-panel absolute bottom-3 right-3 rounded-full p-1.5 text-danger-ink"
                 ><Heart size={12} fill="currentColor" /></span
               >{/if}
             {#if c.assets.length > 1}<span
@@ -530,19 +539,19 @@
                 ><Images size={11} />{c.assets.length}</span
               >{/if}
             {#if mode === "inbox" && !incomplete(c)}<span
-                class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#e9eee0]/60 backdrop-blur-[2px]"
+                class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-tint/60 backdrop-blur-[2px]"
                 ><span
                   class="glass-panel flex items-center gap-2 rounded-full px-4 py-2 text-xs"
                   ><Check size={14} />信息已补全</span
-                ><span class="text-[10px] text-black/55"
+                ><span class="text-[10px] text-ink/55"
                   >离开 Inbox 后归档 · 点击继续编辑</span
                 ></span
               >{/if}
           </button>{#if labels}<div
               class="mt-3 flex items-center justify-between gap-2"
             >
-              <span class="truncate text-[11px] text-black/65">{title(c)}</span
-              ><span class="shrink-0 text-[10px] text-black/40"
+              <span class="truncate text-[11px] text-ink/65">{title(c)}</span
+              ><span class="shrink-0 text-[10px] text-ink/40"
                 >{c.date
                   ? c.date.slice(5).replace("-", " / ")
                   : "日期待补充"}</span
@@ -550,7 +559,7 @@
             </div>{/if}
         </div>
       {:else}<div
-          class="col-span-full flex h-80 flex-col items-center justify-center gap-4 text-black/45"
+          class="col-span-full flex h-80 flex-col items-center justify-center gap-4 text-ink/45"
         >
           <Images size={30} strokeWidth={1} />
           <p class="text-sm">
@@ -575,7 +584,7 @@
             >{/if}
         </div>{/each}
     </div>
-    <p class="mt-12 text-center text-[10px] text-black/40">
+    <p class="mt-12 text-center text-[10px] text-ink/40">
       {desktop
         ? `本地图库 · ${librarySession.root}`
         : "浏览器示例 · 不写入磁盘；请启动 Tauri 桌面版使用本地图库"}
@@ -589,7 +598,7 @@
         <SearchInput
           bind:value={query}
           tags={allTags}
-          people={allPeople}
+          people={librarySession.people}
           error={parsedQuery.error}
         /><button
           class="btn btn-ghost btn-sm btn-circle"
@@ -597,12 +606,12 @@
           onclick={() => (filtersOpen = false)}><X size={16} /></button
         >
       </div>
-      <p class="mt-3 text-[10px] text-black/45">
+      <p class="mt-3 text-[10px] text-ink/45">
         @人物 / #标签 精确匹配 · 空格默认为 AND · 优先级 NOT → AND → OR
         <br />例：(@小明 OR @小蓝) AND NOT #重复 · 名称含空格用引号
       </p>
       <div
-        class="mt-4 flex flex-wrap items-center gap-3 border-t border-black/8 pt-3"
+        class="mt-4 flex flex-wrap items-center gap-3 border-t border-ink/8 pt-3"
       >
         <div class="flex items-center gap-1">
           <div class="w-40">
@@ -613,7 +622,7 @@
             />
           </div>
           <button
-            class={`btn btn-ghost btn-sm btn-circle ${descending ? "bg-black/5" : ""}`}
+            class={`btn btn-ghost btn-sm btn-circle ${descending ? "bg-ink/5" : ""}`}
             aria-label={descending
               ? "当前倒序，切换为正序"
               : "当前正序，切换为倒序"}
@@ -653,7 +662,7 @@
       </div>
     </section>{/if}
   {#if selecting}<div
-      class="glass-panel fixed bottom-24 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-xs"
+      class="glass-panel fixed bottom-24 left-1/2 z-20 flex w-max max-w-[95vw] -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-xs"
     >
       <span>已选 {checked.length} 张</span><button
         class="btn btn-ghost btn-xs"
@@ -695,7 +704,7 @@
     </div>{/if}
   {#if selecting && merging && mode !== "trash" && checked.length >= 2}
     <section
-      class="glass-panel fixed bottom-40 left-1/2 z-30 w-80 -translate-x-1/2 space-y-3 rounded-2xl p-5"
+      class="glass-panel fixed bottom-40 left-1/2 z-30 w-[min(560px,90vw)] -translate-x-1/2 space-y-3 rounded-2xl p-5"
       aria-label="批量归并"
     >
       <div class="flex items-center justify-between">
@@ -704,20 +713,44 @@
           >取消</button
         >
       </div>
-      <p class="text-xs text-black/50">
+      <p class="text-xs text-ink/50">
         选择保留资料的收藏。其他收藏的影像归入此处，其原资料仍可从回收站恢复。
       </p>
-      <SelectMenu
-        label="保留哪张收藏的资料"
-        bind:value={mergeId}
-        onchange={() => (mergeConfirm = false)}
-        options={photos
-          .filter((c) => checked.includes(c.id))
-          .map((c) => ({
-            value: c.id,
-            label: `${c.date || "未定日期"} · ${title(c)}`,
-          }))}
-      />
+      <div
+        class="max-h-[40vh] space-y-1 overflow-auto"
+        role="group"
+        aria-label="保留哪张收藏的资料"
+      >
+        {#each photos.filter((c) => checked.includes(c.id)) as c}{@const a =
+            c.assets.find((a) => a.id === c.coverAssetId) ?? c.assets[0]}
+          <button
+            class={`flex w-full items-center gap-3 rounded-xl p-2 text-left ${mergeId === c.id ? "bg-tint/50 ring-1 ring-[#8c9d72]" : "hover:bg-surface/30"}`}
+            aria-pressed={mergeId === c.id}
+            aria-label={`保留 ${c.date} ${title(c)} ${a?.filename ?? c.id}`}
+            disabled={saving}
+            onclick={() => {
+              mergeId = c.id;
+              mergeConfirm = false;
+            }}
+          >
+            <div class="grid h-16 w-14 shrink-0 place-items-center">
+              {#if a?.src}<PhotoImage
+                  photo={coverPhoto(c, desktop)}
+                />{:else}<Images size={20} />{/if}
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs">{c.date || "未定日期"} · {title(c)}</p>
+              <p class="mt-1 truncate text-[11px] text-ink/45">
+                {a?.filename ?? "无影像"} · {c.id.slice(0, 8)}
+              </p>
+              {#if c.event}<p class="mt-1 truncate text-[11px] text-ink/40">
+                  {c.event}
+                </p>{/if}
+            </div>
+            {#if mergeId === c.id}<Check size={16} />{/if}
+          </button>
+        {/each}
+      </div>
       <button
         class="btn glass-dark btn-sm w-full rounded-full text-white"
         disabled={saving}
@@ -730,13 +763,13 @@
     class="glass-light fixed bottom-7 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 sm:gap-3"
   >
     <button
-      class={`btn btn-ghost btn-sm btn-circle ${filtersOpen ? "bg-black/5" : ""}`}
+      class={`btn btn-ghost btn-sm btn-circle ${filtersOpen ? "bg-ink/5" : ""}`}
       aria-label="搜索与筛选"
       aria-expanded={filtersOpen}
       onclick={() => (filtersOpen = !filtersOpen)}><Search size={17} /></button
     >
     <button
-      class={`btn btn-ghost btn-sm btn-circle ${mode === "favorites" ? "bg-[#b28b83]/20 text-[#9a6c67]" : ""}`}
+      class={`btn btn-ghost btn-sm btn-circle ${mode === "favorites" ? "bg-[#b28b83]/20 text-danger-ink" : ""}`}
       aria-label="筛选喜欢"
       aria-pressed={mode === "favorites"}
       onclick={() => changeMode("favorites")}
@@ -750,9 +783,9 @@
       aria-label="筛选 Inbox"
       aria-pressed={mode === "inbox"}
       onclick={() => changeMode("inbox")}><Inbox size={17} /></button
-    ><span class="h-5 border-l border-black/10"></span>
+    ><span class="h-5 border-l border-ink/10"></span>
     <input
-      class="range range-xs w-20 text-[#7b826e]"
+      class="range range-xs w-20 text-accent-ink"
       aria-label="照片大小"
       type="range"
       min="150"
@@ -765,13 +798,13 @@
       aria-pressed={labels}
       onclick={() => (labels = !labels)}><Info size={16} /></button
     >
-    <span class="h-5 border-l border-black/10"></span><button
+    <span class="h-5 border-l border-ink/10"></span><button
       class="btn btn-sm glass-dark gap-2 rounded-full px-4 text-xs font-normal text-white"
       disabled={librarySession.busy || !librarySession.loaded}
       onclick={() => prepareImport()}><Plus size={15} />导入</button
     >
     <button
-      class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20 text-[#596748]" : ""}`}
+      class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20 text-accent-ink" : ""}`}
       aria-label="选择收藏"
       aria-pressed={selecting}
       onclick={() => {
@@ -781,7 +814,7 @@
       }}><CheckSquare size={16} /></button
     >
     <button
-      class={`btn btn-ghost btn-sm btn-circle ${mode === "trash" ? "bg-[#b28b83]/20 text-[#9a6c67]" : ""}`}
+      class={`btn btn-ghost btn-sm btn-circle ${mode === "trash" ? "bg-[#b28b83]/20 text-danger-ink" : ""}`}
       aria-label="回收站"
       aria-pressed={mode === "trash"}
       onclick={() => changeMode("trash")}><Trash2 size={16} /></button
@@ -804,7 +837,7 @@
       selectedId = null;
       draft = null;
     }}
-    class="fixed inset-0 m-0 h-screen max-h-none w-screen max-w-none overflow-hidden border-0 bg-transparent p-0 text-[#353a30] backdrop:bg-transparent"
+    class="fixed inset-0 m-0 h-screen max-h-none w-screen max-w-none overflow-hidden border-0 bg-transparent p-0 text-base-content backdrop:bg-transparent"
     aria-label="收藏聚焦预览"
   >
     <input
@@ -817,7 +850,7 @@
       aria-label="选择影像文件"
     />
     <button
-      class="absolute inset-0 h-full w-full cursor-default bg-[#d6d8cf]/25 backdrop-blur-[28px] backdrop-saturate-75"
+      class="absolute inset-0 h-full w-full cursor-default bg-tint/25 backdrop-blur-[28px] backdrop-saturate-75"
       aria-label="点击背景返回相册"
       tabindex="-1"
       disabled={saving || librarySession.busy}
@@ -825,7 +858,7 @@
     ></button>
     <div class="pointer-events-none relative flex h-full flex-col px-6 py-5">
       <header class="flex shrink-0 items-center justify-between">
-        <span class="text-xs text-black/40">{title(selected)}</span>
+        <span class="text-xs text-ink/40">{title(selected)}</span>
         <div
           class="glass-light pointer-events-auto flex items-center gap-2 rounded-full p-1"
         >
@@ -840,7 +873,7 @@
               ><Trash2 size={14} />{confirmDelete ? "确认删除" : ""}</button
             >{/if}
           <button
-            class="btn btn-ghost btn-sm btn-circle text-[#9a6c67]"
+            class="btn btn-ghost btn-sm btn-circle text-danger-ink"
             aria-label={selected.favorite ? "取消喜欢" : "设为喜欢"}
             disabled={saving}
             onclick={() => favorite(selected!)}
@@ -866,7 +899,7 @@
           class="pointer-events-auto flex h-full min-w-0 flex-col items-center justify-center"
         >
           <div
-            class="aspect-[3/4] min-h-0 max-w-[48vw] overflow-hidden bg-[#fafaf7] shadow-[0_25px_65px_-15px_#30372a65,0_2px_8px_#00000015]"
+            class="aspect-[3/4] min-h-0 max-w-[48vw] overflow-hidden bg-canvas shadow-[0_25px_65px_-15px_#30372a65,0_2px_8px_#00000015]"
             style:height="min(100%,660px)"
           >
             <PhotoImage
@@ -912,7 +945,7 @@
                   onclick={() => (infoTab = "assets")}>影像</button
                 >
               </div>
-              <span class="text-[10px] text-black/40"
+              <span class="text-[10px] text-ink/40"
                 >{dirty ? "未保存" : desktop ? "已保存到本地" : "示例"}</span
               >
             </div>
@@ -922,37 +955,42 @@
             >
               {#if infoTab === "metadata"}
                 <div>
-                  <p class="mb-1.5 text-[10px] text-black/50">日期</p>
+                  <p class="mb-1.5 text-[10px] text-ink/50">日期</p>
                   <DatePicker label="收藏日期" bind:value={draft.date} />
                 </div>
                 <div>
-                  <p class="mb-1.5 text-[10px] text-black/50">
+                  <p class="mb-1.5 text-[10px] text-ink/50">
                     {draft.shotType === "团切" ? "团体" : "人物"}
                   </p>
                   {#if draft.shotType === "团切"}<input
-                      class="input input-sm w-full border-0 bg-white/25 text-xs"
+                      class="input input-sm w-full border-0 bg-surface/25 text-xs"
                       aria-label="团体"
                       placeholder="团体名称，不关联人物"
                       bind:value={draft.group}
                     />
-                  {:else}<TokenInput
+                  {:else}<PersonPicker
                       bind:this={peopleInput}
-                      bind:values={draft.people}
-                      suggestions={allPeople}
-                      label="人物"
-                      placeholder="输入姓名，Enter 添加"
+                      bind:ids={draft.peopleIds!}
+                      onchange={() => {
+                        if (draft)
+                          draft.people = (draft.peopleIds ?? []).map(
+                            (id) =>
+                              librarySession.people.find((p) => p.id === id)
+                                ?.name ?? "",
+                          );
+                      }}
                     />{/if}
                 </div>
-                <label class="block text-[10px] text-black/50"
+                <label class="block text-[10px] text-ink/50"
                   >活动<input
                     aria-label="活动"
-                    class="input input-sm mt-1.5 w-full border-transparent bg-white/25 text-xs shadow-[inset_0_1px_3px_#28301e12]"
+                    class="input input-sm mt-1.5 w-full border-transparent bg-surface/25 text-xs shadow-[inset_0_1px_3px_#28301e12]"
                     placeholder="活动名称（可选）"
                     bind:value={draft.event}
                   /></label
                 >
                 <div>
-                  <p class="mb-1.5 text-[10px] text-black/50">标签</p>
+                  <p class="mb-1.5 text-[10px] text-ink/50">标签</p>
                   <TokenInput
                     bind:this={tagsInput}
                     bind:values={draft.tags}
@@ -963,7 +1001,7 @@
                   />
                 </div>
                 <div>
-                  <p class="mb-1.5 text-[10px] text-black/50">拍摄类型</p>
+                  <p class="mb-1.5 text-[10px] text-ink/50">拍摄类型</p>
                   <SelectMenu
                     label="拍摄类型"
                     value={draft.shotType}
@@ -973,10 +1011,10 @@
                     }}
                   />
                 </div>
-                <label class="block text-[10px] text-black/50"
+                <label class="block text-[10px] text-ink/50"
                   >备注<textarea
                     aria-label="备注"
-                    class="textarea mt-1.5 w-full border-transparent bg-white/25 text-xs"
+                    class="textarea mt-1.5 w-full border-transparent bg-surface/25 text-xs"
                     rows="2"
                     placeholder="写点什么…"
                     bind:value={draft.notes}></textarea></label
@@ -995,7 +1033,7 @@
                 />
               {/if}
               <div
-                class="space-y-1.5 border-t border-black/8 pt-4 text-[10px] leading-4 text-black/40"
+                class="space-y-1.5 border-t border-ink/8 pt-4 text-[10px] leading-4 text-ink/40"
               >
                 <p class="break-all">{currentAsset.filename}</p>
                 {#if currentAsset.originalFilename !== currentAsset.filename}<p
@@ -1026,20 +1064,20 @@
                   href={selected.source}
                   target="_blank"
                   rel="noreferrer"
-                  class="block text-[10px] text-black/40 underline underline-offset-4"
+                  class="block text-[10px] text-ink/40 underline underline-offset-4"
                   >示例图片来源 ↗</a
                 >{/if}
               {#if error}<p
                   role="alert"
-                  class="whitespace-pre-wrap text-xs text-[#9a5145]"
+                  class="whitespace-pre-wrap text-xs text-danger-ink"
                 >
                   {error}
                 </p>{/if}
             </fieldset>
             <div
-              class="flex shrink-0 items-center justify-between gap-2 border-t border-black/5 px-5 py-3"
+              class="flex shrink-0 items-center justify-between gap-2 border-t border-ink/5 px-5 py-3"
             >
-              <span class="text-[10px] text-black/40"
+              <span class="text-[10px] text-ink/40"
                 >{incomplete(draft)
                   ? draft.shotType === "团切"
                     ? "补全日期与团体后离开 Inbox"
@@ -1081,7 +1119,7 @@
             >{/each}
         </div>
         <button
-          class="btn btn-ghost btn-sm btn-circle bg-white/10 text-white/80"
+          class="btn btn-ghost btn-sm btn-circle bg-surface/10 text-white/80"
           aria-label="为当前收藏添加影像"
           disabled={librarySession.busy || saving}
           onclick={() => prepareImport(selectedId)}

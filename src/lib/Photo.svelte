@@ -10,7 +10,7 @@
 
 {#if !photo.src}
   <div
-    class="flex h-full w-full flex-col items-center justify-center gap-3 bg-black/5 text-black/45"
+    class="flex h-full w-full flex-col items-center justify-center gap-3 bg-ink/5 text-ink/45"
   >
     <ImageOff size={28} /><span class="text-xs">原件已保存 · 暂无预览</span>
   </div>

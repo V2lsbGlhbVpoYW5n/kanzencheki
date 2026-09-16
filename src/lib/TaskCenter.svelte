@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { Activity, Check, X, AlertCircle } from "@lucide/svelte";
   import Floating from "./Floating.svelte";
   import { taskState } from "./tasks.svelte";
@@ -7,7 +8,7 @@
   let active = $derived(taskState.items.filter((t) => t.state === "running"));
   $effect(() => {
     const t = taskState.latest;
-    if (t && t.id !== taskState.shown && toast) {
+    if (t && t.id !== untrack(() => taskState.shown) && toast) {
       taskState.shown = t.id;
       toast.showPopover();
       const timer = setTimeout(() => toast.hidePopover(), 5000);
@@ -36,7 +37,7 @@
       >
     </div>
     {#each taskState.items as t}<div
-        class="space-y-2 border-t border-black/5 p-3"
+        class="space-y-2 border-t border-ink/5 p-3"
       >
         <div class="flex items-center gap-2 text-xs">
           {#if t.state === "running"}<span
@@ -45,7 +46,7 @@
               size={14}
             />{:else}<Check size={14} />{/if}{t.title}
         </div>
-        <p class="break-words whitespace-pre-wrap text-[11px] text-black/50">
+        <p class="break-words whitespace-pre-wrap text-[11px] text-ink/50">
           {t.detail}
         </p>
         {#if t.state === "running"}<progress
@@ -53,10 +54,10 @@
             value={t.total ? t.done : undefined}
             max={t.total || 1}
           ></progress>
-          <p class="text-[10px] text-black/40">
+          <p class="text-[10px] text-ink/40">
             {t.total ? `${t.done} / ${t.total} · 当前文件处理中` : "等待操作"}
           </p>{/if}
-      </div>{:else}<p class="p-5 text-xs text-black/45">
+      </div>{:else}<p class="p-5 text-xs text-ink/45">
         所有操作消息会留在这里
       </p>{/each}
   </Floating>
@@ -64,11 +65,11 @@
 <div
   bind:this={toast}
   popover="manual"
-  class="glass-panel fixed top-auto right-auto bottom-24 left-6 m-0 max-w-80 rounded-2xl border-0 px-4 py-3 text-[#353a30] shadow-xl"
+  class="glass-panel fixed top-auto right-auto bottom-24 left-6 m-0 max-w-80 rounded-2xl border-0 px-4 py-3 text-base-content shadow-xl"
   role="status"
 >
-  <div class="flex items-start gap-3">
-    <p class="whitespace-pre-wrap text-xs">{taskState.latest?.detail}</p>
+  <div class="flex items-center gap-3">
+    <p class="m-0 flex-1 whitespace-pre-wrap text-xs leading-5">{taskState.latest?.detail}</p>
     <button
       class="btn btn-ghost btn-xs btn-circle shrink-0"
       aria-label="关闭消息"

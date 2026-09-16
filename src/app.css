@@ -1,5 +1,6 @@
 @import 'tailwindcss';
-@plugin 'daisyui' { themes: silk --default; }
+@plugin '@tailwindcss/typography';
+@plugin 'daisyui' { themes: silk --default, dark; }
 
 /* Shared glass materials for floating controls; images stay unfiltered. */
 @utility glass-light {
@@ -34,3 +35,21 @@
   .glass-light, .glass-panel { background: #f4f5ef; }
   .glass-dark { background: #535d49; }
 }
+
+@theme inline {
+  --color-ink: var(--ui-ink);
+  --color-surface: var(--ui-surface);
+  --color-canvas: var(--ui-canvas);
+  --color-tint: var(--ui-tint);
+  --color-scrim: var(--ui-scrim);
+  --color-accent-ink: var(--ui-accent);
+  --color-danger-ink: var(--ui-danger);
+}
+:root { --ui-ink:#151a12; --ui-surface:#fff; --ui-canvas:#eeede8; --ui-tint:#dce2d2; --ui-scrim:#c7cbbd; --ui-accent:#61714d; --ui-danger:#9a5145; }
+[data-theme="dark"] { color-scheme:dark; --ui-ink:#edf0e7; --ui-surface:#4c5546; --ui-canvas:#1b1f1a; --ui-tint:#47543b; --ui-scrim:#10140e; --ui-accent:#adbe97; --ui-danger:#edaaa0; --color-base-100:#242a22; --color-base-200:#20251e; --color-base-300:#343c2f; --color-base-content:#e5eadf; --color-primary:#a3b68d; }
+[data-theme="dark"] .glass-light { background:linear-gradient(135deg,#303a2bd9,#252d23b3);box-shadow:0 2px 5px #0003,0 10px 32px #0005; }
+[data-theme="dark"] .glass-panel { background:linear-gradient(145deg,#30372aeb,#222a20d9);box-shadow:0 2px 6px #0003,0 16px 44px #0006; }
+[data-theme="dark"] .glass-dark { background:linear-gradient(135deg,#61754bd9,#465b35cc); }
+[data-theme="dark"] .prose { --tw-prose-body:#d9e1d1; --tw-prose-headings:#edf0e7; --tw-prose-links:#c0d6a4; --tw-prose-bold:#edf0e7; --tw-prose-quotes:#d9e1d1; --tw-prose-code:#d9e1d1; }
+body { background:var(--ui-canvas);color:var(--color-base-content); }
+@media (prefers-reduced-transparency:reduce) { [data-theme="dark"] :is(.glass-light,.glass-panel) { background:#282f24; } }

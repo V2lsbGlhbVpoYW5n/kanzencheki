@@ -98,7 +98,7 @@
 
 <dialog
   bind:this={dialog}
-  class="modal bg-[#bbc1b0]/30 backdrop-blur-xl"
+  class="modal bg-tint/30 backdrop-blur-xl"
   aria-label="裁切拍立得"
   {onclose}
   oncancel={(e) => {
@@ -107,12 +107,12 @@
   }}
 >
   <div
-    class="modal-box glass-panel w-[min(900px,95vw)] max-w-none rounded-3xl p-6 text-[#353a30]"
+    class="modal-box glass-panel w-[min(900px,95vw)] max-w-none rounded-3xl p-6 text-base-content"
   >
     <header class="mb-4 flex items-center justify-between">
       <div>
         <h2>裁切拍立得</h2>
-        <p class="mt-1 text-xs text-black/45">
+        <p class="mt-1 text-xs text-ink/45">
           拖动选区移动，拖右下角调整大小 · 原件不变
         </p>
       </div>
@@ -124,7 +124,7 @@
       >
     </header>
     <div
-      class="flex min-h-0 items-center justify-center rounded-xl bg-black/5 p-3"
+      class="flex min-h-0 items-center justify-center rounded-xl bg-ink/5 p-3"
     >
       <div
         bind:this={box}
@@ -162,7 +162,7 @@
           }}
         ></button>
         <button
-          class="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full bg-white shadow"
+          class="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full bg-surface shadow"
           style:left={`${(region.x + region.w) * 100}%`}
           style:top={`${(region.y + region.h) * 100}%`}
           aria-label="调整裁切大小"

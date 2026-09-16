@@ -1,4 +1,4 @@
-import { normalize, type Cheki } from "./model";
+import { normalize, personLabel, type Person, type Cheki } from "./model";
 type Term = { type: "term"; field: "text" | "tag" | "person"; value: string };
 type Expr =
   | Term
@@ -94,12 +94,13 @@ export function parseQuery(query: string): {
     return { expression: null, error: (e as Error).message };
   }
 }
-export function matchesParsed(c: Cheki, parsed: ReturnType<typeof parseQuery>) {
+export function matchesParsed(c: Cheki, parsed: ReturnType<typeof parseQuery>, people: Person[] = []) {
   if (parsed.error) return false;
   const text = normalize(
     [
       c.date,
       ...c.people,
+      ...people.filter(p=>c.peopleIds?.includes(p.id)).flatMap(p=>[p.description,...p.aliases]),
       c.group,
       c.event,
       c.notes,
@@ -115,7 +116,9 @@ export function matchesParsed(c: Cheki, parsed: ReturnType<typeof parseQuery>) {
     if (e.field === "tag") return c.tags.some((t) => normalize(t) === e.value);
     if (e.field === "person")
       return (
-        c.shotType !== "团切" && c.people.some((p) => normalize(p) === e.value)
+        c.shotType !== "团切" && (
+          people.filter(p=>c.peopleIds?.includes(p.id)).some(p=>[p.name,personLabel(p),...p.aliases].some(n=>normalize(n)===e.value)) || c.people.some(p=>normalize(p)===e.value)
+        )
       );
     return text.includes(e.value);
   }

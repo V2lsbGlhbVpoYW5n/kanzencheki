@@ -1,8 +1,10 @@
 mod catalog;
 mod lifecycle;
+mod people;
 use anyhow::{bail, Context, Result};
 pub use catalog::*;
 use chrono::NaiveDate;
+pub use people::*;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,6 +19,8 @@ use uuid::Uuid;
 pub struct Metadata {
     pub date: String,
     pub people: Vec<String>,
+    #[serde(default)]
+    pub people_ids: Option<Vec<String>>,
     #[serde(default)]
     pub group: String,
     pub event: String,
@@ -72,6 +76,7 @@ pub struct Library {
     pub root: String,
     pub chekis: Vec<Cheki>,
     pub locations: Vec<Location>,
+    pub people: Vec<Person>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -203,7 +208,7 @@ impl Store {
             .write(true)
             .open(root.join("library.lock"))?;
         lock.try_lock().context("此图库已被另一个程序实例打开")?;
-        for dir in ["originals", "previews", "staging"] {
+        for dir in ["originals", "previews", "staging", "people"] {
             fs::create_dir_all(root.join(dir))?;
         }
         let db = Connection::open(root.join("library.sqlite"))?;
@@ -212,7 +217,7 @@ impl Store {
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
         )?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 3 {
+        if version > 4 {
             bail!("图库版本比当前程序新，请升级程序");
         }
         db.execute_batch("BEGIN;
@@ -233,6 +238,8 @@ impl Store {
             _lock: lock,
         };
         store.migrate(version)?;
+        store.migrate_people()?;
+        store.recover_document_writes()?;
         store.recover_renames()?;
         // A durable import manifest bridges the filesystem and SQLite transaction.
         for entry in fs::read_dir(store.root.join("staging"))? {
@@ -287,6 +294,14 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for c in &mut chekis {
             c.metadata.people = self.names(&c.id, true)?;
+            c.metadata.people_ids = Some(
+                self.db
+                    .prepare(
+                        "SELECT person_id FROM cheki_people WHERE cheki_id=?1 ORDER BY position",
+                    )?
+                    .query_map([&c.id], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?,
+            );
             c.metadata.tags = self.names(&c.id, false)?;
             let mut stmt = self.db.prepare("SELECT a.id,a.kind,a.original_filename,a.width,a.height,a.preview_error,a.crop_json,a.fingerprint,a.preferred_source FROM assets a JOIN cheki_assets ca ON ca.asset_id=a.id WHERE ca.cheki_id=?1 ORDER BY ca.position")?;
             c.assets = stmt
@@ -322,6 +337,7 @@ impl Store {
             root: self.root.to_string_lossy().to_string(),
             chekis,
             locations: self.locations()?,
+            people: self.people()?,
         })
     }
     fn names(&self, cheki: &str, people: bool) -> Result<Vec<String>> {
@@ -339,13 +355,11 @@ impl Store {
     pub fn update(&mut self, cheki: &str, metadata: Metadata) -> Result<Library> {
         self.recover_renames()?;
         self.exists(cheki)?;
-        let m = validate(metadata)?;
+        let mut m = validate(metadata)?;
+        let people_ids = self.resolve_people(&mut m)?;
         let tx = self.db.transaction()?;
         tx.execute("UPDATE chekis SET date=?2,event=?3,shot_type=?4,notes=?5,favorite=?6,group_name=?7 WHERE id=?1",params![cheki,m.date,m.event,m.shot_type,m.notes,m.favorite,m.group])?;
-        for (table, links, column, values) in [
-            ("people", "cheki_people", "person_id", &m.people),
-            ("tags", "cheki_tags", "tag_id", &m.tags),
-        ] {
+        for (table, links, column, values) in [("tags", "cheki_tags", "tag_id", &m.tags)] {
             tx.execute(&format!("DELETE FROM {links} WHERE cheki_id=?1"), [cheki])?;
             for (position, value) in values.iter().enumerate() {
                 tx.execute(
@@ -362,6 +376,13 @@ impl Store {
                     params![cheki, entity, position as i64],
                 )?;
             }
+        }
+        tx.execute("DELETE FROM cheki_people WHERE cheki_id=?1", [cheki])?;
+        for (position, person) in people_ids.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO cheki_people(cheki_id,person_id,position) VALUES(?1,?2,?3)",
+                params![cheki, person, position as i64],
+            )?;
         }
         // Commit metadata and the rename intent together. Recovery can finish a move
         // even if the process exits before the filesystem or index update completes.
@@ -660,6 +681,7 @@ mod tests {
             assert_eq!(c.assets[0].width, Some(40));
             assert_eq!(c.assets[0].renditions.len(), 2);
             let m = Metadata {
+                people_ids: None,
                 date: "2026-08-27".into(),
                 people: vec!["小/明".into(), "小红".into(), "小蓝".into()],
                 event: "生日公演".into(),

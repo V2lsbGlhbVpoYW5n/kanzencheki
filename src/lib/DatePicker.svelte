@@ -72,9 +72,9 @@
       ><span slot="previous">‹</span><span slot="next">›</span><calendar-month
       ></calendar-month></calendar-date
     >{/if}
-  <div class="flex gap-2 border-t border-black/5 p-2">
+  <div class="flex gap-2 border-t border-ink/5 p-2">
     <input
-      class="input input-sm min-w-0 flex-1 border-0 bg-white/30 text-xs"
+      class="input input-sm min-w-0 flex-1 border-0 bg-surface/30 text-xs"
       aria-label="直接输入日期"
       placeholder="YYYY-MM-DD"
       bind:value={typed}
