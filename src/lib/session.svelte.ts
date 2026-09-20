@@ -1,4 +1,5 @@
 import { notify, startTask, updateTask, watchTasks } from "./tasks.svelte";
+import { listen } from "@tauri-apps/api/event";
 import { invoke, convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { demoPhotos } from "./demo";
 import { type Cheki, type Metadata, type Library, metadata } from "./model";
@@ -75,7 +76,9 @@ if (!desktop) {
   librarySession.people = names.map((name,i)=>({id:`demo-person-${i}`,name,description:"",aliases:[],notes:"",deletedAt:null,createdAt:new Date().toISOString()}));
   for(const c of librarySession.photos) c.peopleIds=c.people.map(name=>librarySession.people.find(p=>p.name===name)!.id);
 }
+let changesListener: Promise<unknown> | undefined;
 export async function loadLibrary(force = false) {
+  if (desktop) await (changesListener ??= listen("library-changed", () => { void loadLibrary(true); }));
   await watchTasks();
   if (!desktop || (librarySession.loaded && !force)) return;
   try {
@@ -117,6 +120,8 @@ export async function importDesktop(
     });
     if (result) {
       receive(result.library);
+      // A fast background result can arrive before the import response.
+      await loadLibrary(true);
       const failed = result.library.chekis
         .flatMap((c) => c.assets)
         .filter((a) => a.previewError);

@@ -1,5 +1,7 @@
 mod catalog;
+mod detection;
 mod editing;
+pub use detection::{DetectionJob, DetectionReference};
 mod geometry;
 pub use editing::ImageView;
 pub use geometry::Point;
@@ -73,6 +75,7 @@ pub struct Cheki {
     pub assets: Vec<Asset>,
     pub deleted_at: Option<String>,
     pub cover_manual: bool,
+    pub review_faces: Option<u32>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -228,7 +231,7 @@ impl Store {
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
         )?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 4 {
+        if version > 5 {
             bail!("图库版本比当前程序新，请升级程序");
         }
         db.execute_batch("BEGIN;
@@ -250,6 +253,7 @@ impl Store {
         };
         store.migrate(version)?;
         store.migrate_people()?;
+        store.migrate_detection()?;
         store.recover_document_writes()?;
         store.recover_rotations()?;
         store.recover_renames()?;
@@ -289,7 +293,7 @@ impl Store {
         Ok(())
     }
     pub fn list(&self) -> Result<Library> {
-        let mut statement = self.db.prepare("SELECT id,date,event,shot_type,notes,favorite,cover_asset_id,group_name,deleted_at,cover_manual FROM chekis ORDER BY rowid DESC")?;
+        let mut statement = self.db.prepare("SELECT id,date,event,shot_type,notes,favorite,cover_asset_id,group_name,deleted_at,cover_manual,review_faces FROM chekis ORDER BY rowid DESC")?;
         let mut chekis = statement
             .query_map([], |r| {
                 Ok(Cheki {
@@ -306,6 +310,7 @@ impl Store {
                     cover_asset_id: r.get(6)?,
                     deleted_at: r.get(8)?,
                     cover_manual: r.get(9)?,
+                    review_faces: r.get(10)?,
                     assets: vec![],
                 })
             })?
@@ -375,8 +380,21 @@ impl Store {
         self.exists(cheki)?;
         let mut m = validate(metadata)?;
         let people_ids = self.resolve_people(&mut m)?;
+        let current_type: String =
+            self.db
+                .query_row("SELECT shot_type FROM chekis WHERE id=?1", [cheki], |r| {
+                    r.get(0)
+                })?;
+        let current_people: Vec<String> = self
+            .db
+            .prepare("SELECT person_id FROM cheki_people WHERE cheki_id=?1 ORDER BY position")?
+            .query_map([cheki], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let overrides_detection = current_type != m.shot_type || current_people != people_ids;
         let tx = self.db.transaction()?;
-        tx.execute("UPDATE chekis SET date=?2,event=?3,shot_type=?4,notes=?5,favorite=?6,group_name=?7 WHERE id=?1",params![cheki,m.date,m.event,m.shot_type,m.notes,m.favorite,m.group])?;
+        // A manual type/person override wins over an AI suggestion. Unrelated edits keep
+        // the review pending so a favorite or note cannot silently accept recognition.
+        tx.execute("UPDATE chekis SET date=?2,event=?3,shot_type=?4,notes=?5,favorite=?6,group_name=?7,review_faces=CASE WHEN ?8 THEN NULL ELSE review_faces END WHERE id=?1",params![cheki,m.date,m.event,m.shot_type,m.notes,m.favorite,m.group,overrides_detection])?;
         for (table, links, column, values) in [("tags", "cheki_tags", "tag_id", &m.tags)] {
             tx.execute(&format!("DELETE FROM {links} WHERE cheki_id=?1"), [cheki])?;
             for (position, value) in values.iter().enumerate() {

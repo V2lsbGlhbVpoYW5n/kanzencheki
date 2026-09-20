@@ -198,7 +198,9 @@
           inboxIds = unique([
             ...inboxIds,
             ...photos
-              .filter((c) => !c.deletedAt && incomplete(c))
+              .filter(
+                (c) => !c.deletedAt && (incomplete(c) || c.reviewFaces != null),
+              )
               .map((c) => c.id),
           ]);
       } catch {}
@@ -249,6 +251,28 @@
 
   let dirty = $derived(!!draft && JSON.stringify(draft) !== initial);
   $effect(() => {
+    if (selected && draft && !dirty && !peopleInput?.hasPendingInput()) {
+      const next = metadata(selected);
+      if (JSON.stringify(next) !== initial) {
+        draft = next;
+        initial = JSON.stringify(next);
+      }
+    }
+  });
+  async function confirmDetection() {
+    if (!selected || dirty || saving || peopleInput?.hasPendingInput()) return;
+    saving = true;
+    try {
+      // Run the normal metadata save path so an accepted person suggestion also
+      // updates the managed original filename before its review flag is cleared.
+      await saveCheki(selected.id, metadata(selected));
+      await catalogCommand("detection_confirm", { id: selected.id });
+    } catch {
+    } finally {
+      saving = false;
+    }
+  }
+  $effect(() => {
     if (selectedId && viewer && !viewer.open) viewer.showModal();
   });
   let openedReference = $state("");
@@ -277,7 +301,7 @@
     mode = mode === next ? "all" : next;
     if (mode === "inbox")
       inboxIds = photos
-        .filter((c) => !c.deletedAt && incomplete(c))
+        .filter((c) => !c.deletedAt && (incomplete(c) || c.reviewFaces != null))
         .map((c) => c.id);
     else inboxIds = [];
   }
@@ -540,7 +564,16 @@
                 class="glass-panel absolute bottom-3 left-3 flex items-center gap-1 rounded-full px-2 py-1 text-[10px]"
                 ><Images size={11} />{c.assets.length}</span
               >{/if}
-            {#if mode === "inbox" && !incomplete(c)}<span
+            {#if c.reviewFaces != null && mode !== "trash"}<span
+                class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface/35 backdrop-blur-[1px]"
+                ><span class="glass-panel rounded-full px-4 py-2 text-xs"
+                  >待核验 · {c.shotType}</span
+                ><span class="glass-panel rounded-full px-3 py-1 text-[10px]"
+                  >检测到 {c.reviewFaces} 张人脸{c.people.length
+                    ? ` · 建议 ${c.people.join("、")}`
+                    : ""} · 点击核验</span
+                ></span
+              >{:else if mode === "inbox" && !incomplete(c)}<span
                 class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-tint/60 backdrop-blur-[2px]"
                 ><span
                   class="glass-panel flex items-center gap-2 rounded-full px-4 py-2 text-xs"
@@ -971,6 +1004,26 @@
               class="min-h-0 space-y-4 overflow-y-auto px-5 pb-5"
             >
               {#if infoTab === "metadata"}
+                {#if selected.reviewFaces != null}
+                  <div class="rounded-xl bg-tint/25 p-3 text-xs">
+                    <p class="font-medium">AI 建议待核验</p>
+                    <p class="mt-1 leading-relaxed text-ink/60">
+                      本地检测到 {selected.reviewFaces} 张人脸，建议类型为 {selected.shotType}{selected.people.length
+                        ? `，并匹配到 ${selected.people.join("、")}`
+                        : "，未找到高置信度人物匹配"}。背景路人、侧脸或漏检可能影响结果，请核对。
+                    </p>
+                    <button
+                      class="btn btn-ghost btn-xs mt-2 rounded-full"
+                      disabled={dirty ||
+                        saving ||
+                        !!peopleInput?.hasPendingInput()}
+                      onclick={confirmDetection}>确认已核验</button
+                    >
+                    {#if dirty}<p class="mt-1 text-[10px] text-ink/50">
+                        先保存修改；调整了建议类型或人物时，保存会直接完成核验。
+                      </p>{/if}
+                  </div>
+                {/if}
                 <div>
                   <p class="mb-1.5 text-[10px] text-ink/50">日期</p>
                   <DatePicker label="收藏日期" bind:value={draft.date} />

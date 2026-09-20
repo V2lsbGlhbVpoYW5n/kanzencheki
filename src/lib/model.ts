@@ -42,6 +42,7 @@ export interface Cheki extends Metadata {
   coverAssetId: string | null;
   deletedAt?: string | null;
   coverManual?: boolean;
+  reviewFaces?: number | null;
   assets: Asset[];
   // Browser-only sample cover, never sent as metadata to the backend.
   demoTitle?: string;

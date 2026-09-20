@@ -35,6 +35,9 @@
     active = 0;
     onchange?.();
   }
+  export function hasPendingInput() {
+    return !!text.trim() || creating;
+  }
   export function flush() {
     if (!text.trim()) return true;
     const exact = librarySession.people.filter(

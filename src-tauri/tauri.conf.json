@@ -28,6 +28,7 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": false,
+    "resources": ["models/LICENSE-*", "models/mobile_facenet/*"]
   }
 }

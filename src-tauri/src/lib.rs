@@ -1,3 +1,4 @@
+mod detection;
 mod media;
 mod storage;
 use std::sync::{Arc, Mutex};
@@ -35,6 +36,10 @@ async fn cheki_update(
     metadata: Metadata,
 ) -> Result<Library, String> {
     work(state.inner().clone(), move |s| s.update(&id, metadata)).await
+}
+#[tauri::command]
+async fn detection_confirm(state: State<'_, Backend>, id: String) -> Result<Library, String> {
+    work(state.inner().clone(), move |s| s.confirm_detection(&id)).await
 }
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +105,7 @@ async fn import_photos(
     let mut attach_cheki = options.cheki_id.clone();
     let total = paths.len();
     let mut imported = 0;
+    let mut detection_ids = Vec::new();
     let mut errors = vec![];
     for (i, path) in paths.into_iter().enumerate() {
         progress(
@@ -124,6 +130,9 @@ async fn import_photos(
         {
             Ok((cheki, _asset)) => {
                 imported += 1;
+                if !detection_ids.contains(&cheki) {
+                    detection_ids.push(cheki.clone());
+                }
                 if options.grouping == "collection" {
                     if attach_cheki.is_none() {
                         attach_cheki = Some(cheki);
@@ -149,7 +158,13 @@ async fn import_photos(
             }
         ),
     );
+    let jobs = work(state.inner().clone(), move |s| {
+        s.detection_jobs(&detection_ids)
+    })
+    .await?;
+    let references = work(state.inner().clone(), |s| s.detection_references()).await?;
     let library = work(state.inner().clone(), |s| s.list()).await?;
+    detection::start(app, state.inner().clone(), jobs, references);
     Ok(Some(ImportReport {
         imported,
         errors,
@@ -504,6 +519,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             library_load,
+            detection_confirm,
             person_save,
             person_trash,
             person_purge,

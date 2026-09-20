@@ -834,7 +834,7 @@ mod migration_tests {
         assert_eq!(
             s.db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            4
+            5
         );
     }
 }
