@@ -1,0 +1,14 @@
+{
+  "已有 {0} 位同名人物。请填写不同的简短描述，这会显示在人物选择候选中。": "{0} person already has this name. Add a unique short description to distinguish them in suggestions.",
+  "{0} 份影像": "{0} image",
+  "已处理 {0} 项": "Processed {0} item",
+  "已处理 {0} 项；{1}": "Processed {0} item; {1}",
+  "{0} 份影像的预览生成失败。": "Failed to generate a preview for {0} image.",
+  "已将 {0} 张收藏移入回收站": "Moved {0} collection to trash",
+  "检测到 {0} 张人脸{1} · 点击核验": "{0} face detected{1} · Click to review",
+  "已恢复 {0} 位人物": "Restored {0} person",
+  "已删除 {0} 位人物，拍立得保留": "Deleted {0} person; cheki kept",
+  "已处理 {0} 位人物；{1}": "Processed {0} person; {1}",
+  "已导入 {0} 份影像{1}": "Imported {0} image{1}",
+  "已导入 {0} 个附件": "Imported {0} attachment"
+}

@@ -1,3 +1,4 @@
+import { language, sourceMessage } from "$lib/i18n.svelte";
 import { notify, startTask, updateTask, watchTasks } from "./tasks.svelte";
 import { listen } from "@tauri-apps/api/event";
 import { invoke, convertFileSrc, isTauri } from "@tauri-apps/api/core";
@@ -72,13 +73,27 @@ export function receive(library: Library) {
   librarySession.loaded = true;
 }
 if (!desktop) {
-  const names = [...new Set(librarySession.photos.flatMap(c => c.people))];
-  librarySession.people = names.map((name,i)=>({id:`demo-person-${i}`,name,description:"",aliases:[],notes:"",deletedAt:null,createdAt:new Date().toISOString()}));
-  for(const c of librarySession.photos) c.peopleIds=c.people.map(name=>librarySession.people.find(p=>p.name===name)!.id);
+  const names = [...new Set(librarySession.photos.flatMap((c) => c.people))];
+  librarySession.people = names.map((name, i) => ({
+    id: `demo-person-${i}`,
+    name,
+    description: "",
+    aliases: [],
+    notes: "",
+    deletedAt: null,
+    createdAt: new Date().toISOString(),
+  }));
+  for (const c of librarySession.photos)
+    c.peopleIds = c.people.map(
+      (name) => librarySession.people.find((p) => p.name === name)!.id,
+    );
 }
 let changesListener: Promise<unknown> | undefined;
 export async function loadLibrary(force = false) {
-  if (desktop) await (changesListener ??= listen("library-changed", () => { void loadLibrary(true); }));
+  if (desktop)
+    await (changesListener ??= listen("library-changed", () => {
+      void loadLibrary(true);
+    }));
   await watchTasks();
   if (!desktop || (librarySession.loaded && !force)) return;
   try {
@@ -107,7 +122,7 @@ export async function importDesktop(
 ) {
   await watchTasks();
   librarySession.busy = true;
-  const taskId = startTask("导入影像");
+  const taskId = startTask(sourceMessage("导入影像"));
   try {
     const result = await invoke<{
       imported: number;
@@ -116,6 +131,7 @@ export async function importDesktop(
     } | null>("import_photos", {
       options: { chekiId, ...options },
       taskId,
+      locale: language.current,
       locationId,
     });
     if (result) {
@@ -126,13 +142,16 @@ export async function importDesktop(
         .flatMap((c) => c.assets)
         .filter((a) => a.previewError);
       if (failed.length)
-        notify(`${failed.length} 份影像的预览生成失败。`, "error");
+        notify(
+          sourceMessage("{0} 份影像的预览生成失败。", [failed.length]),
+          "error",
+        );
       return "";
     }
     updateTask({
       id: taskId,
-      title: "导入影像",
-      detail: "已取消",
+      title: sourceMessage("导入影像"),
+      detail: sourceMessage("已取消"),
       done: 0,
       total: 0,
       state: "done",
@@ -141,7 +160,7 @@ export async function importDesktop(
   } catch (e) {
     updateTask({
       id: taskId,
-      title: "导入影像",
+      title: sourceMessage("导入影像"),
       detail: String(e),
       done: 0,
       total: 0,
@@ -158,13 +177,17 @@ export async function catalogCommand(
 ) {
   const processing = ["asset_crop", "asset_rotate"].includes(command);
   const taskId = processing
-    ? startTask(command === "asset_crop" ? "保存裁切" : "旋转原件与浏览图")
+    ? startTask(
+        command === "asset_crop"
+          ? sourceMessage("保存裁切")
+          : sourceMessage("旋转原件与浏览图"),
+      )
     : null;
   if (taskId)
     updateTask({
       id: taskId,
-      title: "处理影像",
-      detail: "正在读取影像并更新本机缓存…",
+      title: sourceMessage("处理影像"),
+      detail: sourceMessage("正在读取影像并更新本机缓存…"),
       done: 0,
       total: 0,
       state: "running",
@@ -178,7 +201,7 @@ export async function catalogCommand(
         .find((a) => a.id === args.assetId);
       updateTask({
         id: taskId,
-        title: "处理影像",
+        title: sourceMessage("处理影像"),
         detail: asset?.previewError || "浏览图已更新",
         done: 1,
         total: 1,
@@ -193,7 +216,7 @@ export async function catalogCommand(
     if (taskId)
       updateTask({
         id: taskId,
-        title: "处理影像",
+        title: sourceMessage("处理影像"),
         detail: String(e),
         done: 0,
         total: 1,
@@ -214,5 +237,9 @@ export async function trashChekis(ids: string[], restore = false) {
       if (ids.includes(c.id))
         c.deletedAt = restore ? null : new Date().toISOString();
     }
-  notify(restore ? "已恢复收藏" : `已将 ${ids.length} 张收藏移入回收站`);
+  notify(
+    restore
+      ? sourceMessage("已恢复收藏")
+      : sourceMessage("已将 {0} 张收藏移入回收站", [ids.length]),
+  );
 }

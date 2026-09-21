@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tr, language } from "$lib/i18n.svelte";
   import { onMount } from "svelte";
   import { CalendarDays } from "@lucide/svelte";
   import Floating from "./Floating.svelte";
@@ -59,14 +60,14 @@
   }
 </script>
 
-<Floating bind:this={pop} {label} wide>
+<Floating bind:this={pop} label={tr(label)} wide>
   {#snippet trigger()}<CalendarDays size={14} /><span class="flex-1 text-left"
-      >{onselect ? label : value || "选择日期"}</span
+      >{onselect ? tr(label) : value || tr("选择日期")}</span
     >{/snippet}
   {#if ready}<calendar-date
       class="cally w-full bg-transparent"
       {value}
-      locale="zh-CN"
+      locale={language.current}
       first-day-of-week="1"
       use:connectCalendar
       ><span slot="previous">‹</span><span slot="next">›</span><calendar-month
@@ -75,7 +76,7 @@
   <div class="flex gap-2 border-t border-ink/5 p-2">
     <input
       class="input input-sm min-w-0 flex-1 border-0 bg-surface/30 text-xs"
-      aria-label="直接输入日期"
+      aria-label={tr("直接输入日期")}
       placeholder="YYYY-MM-DD"
       bind:value={typed}
       onfocus={() => (typed = value)}
@@ -86,16 +87,16 @@
         }
       }}
     /><button class="btn btn-ghost btn-sm" onclick={apply}
-      >{onselect ? "跳转" : "确定"}</button
+      >{onselect ? tr("跳转") : tr("确定")}</button
     >{#if !onselect}<button
         class="btn btn-ghost btn-sm"
         onclick={() => {
           value = "";
           pop.close();
-        }}>清除</button
+        }}>{tr("清除")}</button
       >{/if}
   </div>
   {#if invalid}<p class="px-3 text-xs text-error">
-      请输入有效日期，例如 2026-08-27
+      {tr("请输入有效日期，例如 2026-08-27")}
     </p>{/if}
 </Floating>

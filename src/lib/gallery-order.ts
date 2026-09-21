@@ -19,6 +19,7 @@ export function orderChekis(
   sort: string,
   descending: boolean,
   allItems: Cheki[] = items,
+  locale = "zh-CN",
 ) {
   const dates = meetingDates(allItems);
   const meetings = (c: Cheki) =>
@@ -37,7 +38,7 @@ export function orderChekis(
       sort === "meetings"
         ? meetings(a) - meetings(b)
         : sort === "name"
-          ? title(a).localeCompare(title(b), "zh-CN", { numeric: true })
+          ? title(a).localeCompare(title(b), locale, { numeric: true })
           : a.date.localeCompare(b.date);
     // Stable sorting preserves existing order for equal values.
     return result * (descending ? -1 : 1);

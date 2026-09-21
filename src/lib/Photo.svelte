@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tr } from "$lib/i18n.svelte";
   import { ImageOff } from "@lucide/svelte";
   type Photo = {
     src: string;
@@ -25,7 +26,9 @@
   <div
     class="flex h-full w-full flex-col items-center justify-center gap-3 bg-ink/5 text-ink/45"
   >
-    <ImageOff size={28} /><span class="text-xs">原件已保存 · 暂无预览</span>
+    <ImageOff size={28} /><span class="text-xs"
+      >{tr("原件已保存 · 暂无预览")}</span
+    >
   </div>
 {:else if photo.crop && !full}
   <div

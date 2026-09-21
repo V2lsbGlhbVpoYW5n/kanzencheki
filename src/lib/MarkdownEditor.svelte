@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tr } from "$lib/i18n.svelte";
   import { onMount } from "svelte";
   import { Editor } from "@tiptap/core";
   import StarterKit from "@tiptap/starter-kit";
@@ -39,7 +40,7 @@
           class:
             "prose prose-sm max-w-none min-h-72 outline-none text-base-content",
           role: "textbox",
-          "aria-label": "文章正文",
+          "aria-label": tr("文章正文"),
         },
         handleClick: (_view, _pos, event) => {
           const a = (event.target as Element).closest("a");
@@ -109,45 +110,46 @@
         disabled={source}
         onclick={() =>
           editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-        >标题</button
+        >{tr("标题")}</button
       >
       <button
         type="button"
         class="btn btn-ghost btn-xs"
         disabled={source}
         onclick={() => editor?.chain().focus().toggleBulletList().run()}
-        >列表</button
+        >{tr("列表")}</button
       >
       <button
         type="button"
         class="btn btn-ghost btn-xs"
         disabled={source}
         onclick={() => editor?.chain().focus().toggleBlockquote().run()}
-        >引文</button
+        >{tr("引文")}</button
       >
       <button
         type="button"
         class="btn btn-ghost btn-xs"
-        onclick={() => onpickreference?.()}>引用收藏 / 附件</button
+        onclick={() => onpickreference?.()}>{tr("引用收藏 / 附件")}</button
       >
       <button
         type="button"
         class="btn btn-ghost btn-xs"
         disabled={source}
-        onclick={() => editor?.chain().focus().undo().run()}>撤销</button
+        onclick={() => editor?.chain().focus().undo().run()}
+        >{tr("撤销")}</button
       >
       <button
         type="button"
         class="btn btn-ghost btn-xs ml-auto"
         aria-pressed={source}
         onclick={() => (source = !source)}
-        >{source ? "富文本" : "Markdown 源码"}</button
+        >{source ? tr("富文本") : tr("Markdown 源码")}</button
       >
     </div>{/if}
   <div bind:this={element} class:hidden={source} class="py-2"></div>
   {#if source}<textarea
       class="textarea min-h-80 w-full border-0 bg-surface/20 font-mono text-sm"
-      aria-label="Markdown 源码"
+      aria-label={tr("Markdown 源码")}
       bind:value
       readonly={!editable}></textarea>{/if}
 </div>

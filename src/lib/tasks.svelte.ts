@@ -4,6 +4,7 @@ export interface Task {
   id: string;
   title: string;
   detail: string;
+  literalDetail?: boolean;
   done: number;
   total: number;
   state: "running" | "done" | "error";

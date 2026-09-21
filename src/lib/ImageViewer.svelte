@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { message, tr } from "$lib/i18n.svelte";
   import { onMount } from "svelte";
   import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import { X, Plus, Minus, Scan, Move } from "@lucide/svelte";
@@ -203,7 +204,7 @@
 <dialog
   bind:this={dialog}
   class="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-canvas/90 p-0 text-base-content backdrop-blur-2xl"
-  aria-label="全窗口图像查看"
+  aria-label={tr("全窗口图像查看")}
   {onclose}
   onkeydown={keys}
   oncancel={(e) => e.stopPropagation()}
@@ -215,7 +216,7 @@
     bind:clientWidth={width}
     bind:clientHeight={height}
     role="application"
-    aria-label="图像缩放与平移，Ctrl 加滚轮缩放，方向键移动"
+    aria-label={tr("图像缩放与平移，Ctrl 加滚轮缩放，方向键移动")}
     tabindex="0"
     class="absolute inset-0 touch-none overflow-hidden outline-none"
     onpointerdown={drag}
@@ -236,8 +237,8 @@
         if (view === "original" && originalSrc) {
           originalSrc = asset.baseSrc || asset.src;
           isOriginal = false;
-          error = "原图无法显示，已切换本机压缩预览";
-        } else error = "图像暂不可用";
+          error = tr("原图无法显示，已切换本机压缩预览");
+        } else error = tr("图像暂不可用");
       }}
     />
   </div>
@@ -249,7 +250,7 @@
     </div>
     <button
       class="btn glass-panel btn-sm btn-circle pointer-events-auto ml-auto"
-      aria-label="关闭全窗口查看"
+      aria-label={tr("关闭全窗口查看")}
       onclick={() => dialog.close()}><X size={18} /></button
     >
   </header>
@@ -262,30 +263,30 @@
       onclick={() => {
         view = "crop";
         reset();
-      }}>裁切图</button
+      }}>{tr("裁切图")}</button
     ><button
       class={`btn btn-ghost btn-sm rounded-full ${view === "original" ? "bg-tint/40" : ""}`}
       aria-pressed={view === "original"}
       onclick={showOriginal}
       >{loading
-        ? "加载原图…"
+        ? tr("加载原图…")
         : view === "original" && !isOriginal
-          ? "原图 · 压缩预览"
-          : "原图"}</button
+          ? tr("原图 · 压缩预览")
+          : tr("原图")}</button
     ><span class="mx-1 h-5 border-l border-ink/15"></span><button
       class="btn btn-ghost btn-sm btn-circle"
-      aria-label="缩小"
+      aria-label={tr("缩小")}
       onclick={() => scale(zoom / 1.25)}><Minus size={16} /></button
     ><span class="w-12 text-center tabular-nums"
       >{Math.round(zoom * fit * 100)}%</span
     ><button
       class="btn btn-ghost btn-sm btn-circle"
-      aria-label="放大"
+      aria-label={tr("放大")}
       onclick={() => scale(zoom * 1.25)}><Plus size={16} /></button
     ><button
       class="btn btn-ghost btn-sm btn-circle"
-      aria-label="适应窗口"
-      title="适应窗口（0）"
+      aria-label={tr("适应窗口")}
+      title={tr("适应窗口（0）")}
       onclick={reset}><Scan size={16} /></button
     ><button
       class="btn btn-ghost btn-sm rounded-full"
@@ -296,11 +297,12 @@
       class="glass-panel absolute bottom-24 left-1/2 max-w-xl -translate-x-1/2 rounded-xl px-4 py-2 text-xs"
       role="alert"
     >
-      {error}
+      {message(error)}
     </p>{:else}<p
       class="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-ink/45"
     >
-      <Move size={12} class="mr-1 inline" />拖拽 / 方向键移动 · Ctrl + 滚轮 /
-      加减号缩放
+      <Move size={12} class="mr-1 inline" />{tr(
+        "拖拽 / 方向键移动 · Ctrl + 滚轮 / 加减号缩放",
+      )}
     </p>{/if}
 </dialog>

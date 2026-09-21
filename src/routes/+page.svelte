@@ -1,4 +1,11 @@
 <script lang="ts">
+  import {
+    sourceMessage,
+    collectionTitle,
+    language,
+    message,
+    tr,
+  } from "$lib/i18n.svelte";
   import { goto } from "$app/navigation";
   import TaskCenter from "$lib/TaskCenter.svelte";
   import Settings from "$lib/Settings.svelte";
@@ -47,7 +54,6 @@
     type Asset,
     incomplete,
     metadata,
-    title,
     unique,
     shotTypes,
     formatBytes,
@@ -158,7 +164,7 @@
       checked = [];
       merging = false;
       mergeConfirm = false;
-      notify("已归并影像；其余收藏资料保留在回收站");
+      notify(sourceMessage("已归并影像；其余收藏资料保留在回收站"));
     } catch {
     } finally {
       saving = false;
@@ -177,7 +183,7 @@
         librarySession.photos = photos.filter((c) => !checked.includes(c.id));
       checked = [];
       purgeConfirm = false;
-      notify("已从图库删除；不再使用的原件已移入系统回收站");
+      notify(sourceMessage("已从图库删除；不再使用的原件已移入系统回收站"));
     } catch {
     } finally {
       saving = false;
@@ -235,6 +241,7 @@
       sort,
       descending,
       photos,
+      language.current,
     ),
   );
   let allTags = $derived(unique(photos.flatMap((c) => c.tags)).sort());
@@ -309,7 +316,7 @@
     if (!date || parsedQuery.error) return;
     const target = nearestDate(visible, date);
     if (!target) {
-      notify("当前结果中没有填写日期的收藏", "error");
+      notify(sourceMessage("当前结果中没有填写日期的收藏"), "error");
       return;
     }
     // Preserve the result set and sort order: date navigation is not a filter.
@@ -345,7 +352,7 @@
     if (
       draft &&
       JSON.stringify(draft) !== initial &&
-      !window.confirm("放弃尚未保存的收藏信息？")
+      !window.confirm(tr("放弃尚未保存的收藏信息？"))
     )
       return;
     viewer?.close();
@@ -364,7 +371,7 @@
   async function save() {
     if (!selected || !draft || saving || librarySession.busy) return;
     if (peopleInput && !peopleInput.flush()) {
-      error = "请先选择或创建输入的人物";
+      error = tr("请先选择或创建输入的人物");
       return;
     }
     tagsInput?.flush();
@@ -374,7 +381,7 @@
       await saveCheki(selected.id, metadata(draft));
       draft = metadata(librarySession.photos.find((c) => c.id === selectedId)!);
       initial = JSON.stringify(draft);
-      notice = desktop ? "收藏信息已保存" : "示例修改已保存到本次会话";
+      notice = desktop ? sourceMessage("收藏信息已保存") : sourceMessage("示例修改已保存到本次会话");
     } catch (e) {
       error = String(e);
     } finally {
@@ -442,7 +449,9 @@
     const target = photos.find((c) => c.id === importTarget);
     for (const file of files) {
       if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-        notice = "浏览器示例支持 JPEG/PNG/WebP；TIFF 请在桌面端导入。";
+        notice = sourceMessage(
+          "浏览器示例支持 JPEG/PNG/WebP；TIFF 请在桌面端导入。",
+        );
         continue;
       }
       const src = URL.createObjectURL(file);
@@ -491,11 +500,11 @@
       }
     }
     (e.target as HTMLInputElement).value = "";
-    notice = "浏览器临时预览；正式持久化请启动桌面程序。";
+    notice = sourceMessage("浏览器临时预览；正式持久化请启动桌面程序。");
   }
 </script>
 
-<svelte:head><title>Cheki — 相册</title></svelte:head>
+<svelte:head><title>{tr("Cheki — 相册")}</title></svelte:head>
 <svelte:window onkeydown={key} />
 <input
   class="hidden"
@@ -504,10 +513,10 @@
   multiple
   accept="image/jpeg,image/png,image/webp"
   onchange={browserImport}
-  aria-label="选择照片"
+  aria-label={tr("选择照片")}
 />
 <main
-  aria-label="全览相册"
+  aria-label={tr("全览相册")}
   class="h-screen overflow-y-auto bg-canvas text-base-content"
 >
   <div class="absolute left-8 top-8 text-xs text-ink/50 sm:left-12">
@@ -515,23 +524,23 @@
       >{mode === "inbox"
         ? "Inbox"
         : mode === "trash"
-          ? "回收站"
+          ? tr("回收站")
           : mode === "favorites"
-            ? "喜欢"
-            : "全部收藏"}</span
+            ? tr("喜欢")
+            : tr("全部收藏")}</span
     ><span class="ml-3 text-ink/30">{visible.length}</span>
   </div>
-  <section class="px-8 pb-36 pt-28 sm:px-12" aria-label="收藏网格">
+  <section class="px-8 pb-36 pt-28 sm:px-12" aria-label={tr("收藏网格")}>
     {#if librarySession.error || (error && !selected)}<div
         role="alert"
         class="glass-panel mb-5 rounded-xl p-4 text-sm"
       >
-        {librarySession.error || error}<button
+        {message(librarySession.error || error)}<button
           class="btn btn-ghost btn-sm"
           onclick={() => {
             librarySession.error = "";
             void loadLibrary();
-          }}>重试</button
+          }}>{tr("重试")}</button
         >
       </div>{/if}
     <div
@@ -542,7 +551,7 @@
         <div id={`cheki-${c.id}`} class="min-w-0 scroll-mt-28 rounded-sm">
           <button
             class="relative block w-full rounded-sm text-left outline-offset-8 transition-transform duration-200 hover:-translate-y-1 focus-visible:outline-2 focus-visible:outline-[#798468] motion-reduce:transform-none"
-            aria-label={`${selecting ? "选择" : "查看"} ${title(c)}`}
+            aria-label={`${selecting ? tr("选择") : tr("查看")} ${collectionTitle(c)}`}
             aria-pressed={selecting ? checked.includes(c.id) : undefined}
             onclick={(e) =>
               selecting || e.shiftKey
@@ -567,29 +576,33 @@
             {#if c.reviewFaces != null && mode !== "trash"}<span
                 class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface/35 backdrop-blur-[1px]"
                 ><span class="glass-panel rounded-full px-4 py-2 text-xs"
-                  >待核验 · {c.shotType}</span
+                  >{tr("待核验 · {0}", [tr(c.shotType)])}</span
                 ><span class="glass-panel rounded-full px-3 py-1 text-[10px]"
-                  >检测到 {c.reviewFaces} 张人脸{c.people.length
-                    ? ` · 建议 ${c.people.join("、")}`
-                    : ""} · 点击核验</span
+                  >{tr("检测到 {0} 张人脸{1} · 点击核验", [
+                    c.reviewFaces,
+                    c.people.length
+                      ? tr(" · 建议 {0}", [c.people.join("、")])
+                      : "",
+                  ])}</span
                 ></span
               >{:else if mode === "inbox" && !incomplete(c)}<span
                 class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-tint/60 backdrop-blur-[2px]"
                 ><span
                   class="glass-panel flex items-center gap-2 rounded-full px-4 py-2 text-xs"
-                  ><Check size={14} />信息已补全</span
+                  ><Check size={14} />{tr("信息已补全")}</span
                 ><span class="text-[10px] text-ink/55"
-                  >离开 Inbox 后归档 · 点击继续编辑</span
+                  >{tr("离开 Inbox 后归档 · 点击继续编辑")}</span
                 ></span
               >{/if}
           </button>{#if labels}<div
               class="mt-3 flex items-center justify-between gap-2"
             >
-              <span class="truncate text-[11px] text-ink/65">{title(c)}</span
+              <span class="truncate text-[11px] text-ink/65"
+                >{collectionTitle(c)}</span
               ><span class="shrink-0 text-[10px] text-ink/40"
                 >{c.date
                   ? c.date.slice(5).replace("-", " / ")
-                  : "日期待补充"}</span
+                  : tr("日期待补充")}</span
               >
             </div>{/if}
         </div>
@@ -599,10 +612,10 @@
           <Images size={30} strokeWidth={1} />
           <p class="text-sm">
             {!librarySession.loaded
-              ? "正在打开本地图库…"
+              ? tr("正在打开本地图库…")
               : photos.length
-                ? "没有匹配的收藏"
-                : "导入第一张拍立得"}
+                ? tr("没有匹配的收藏")
+                : tr("导入第一张拍立得")}
           </p>
           {#if photos.length}<button
               class="btn btn-ghost btn-sm text-xs"
@@ -611,22 +624,23 @@
                 inboxIds = [];
                 query = "";
                 typeFilter = "";
-              }}>查看全部收藏</button
+              }}>{tr("查看全部收藏")}</button
             >{:else}<button
               class="btn glass-dark rounded-full text-xs text-white"
               disabled={librarySession.busy || !librarySession.loaded}
-              onclick={() => prepareImport()}><Plus size={14} />导入照片</button
+              onclick={() => prepareImport()}
+              ><Plus size={14} />{tr("导入照片")}</button
             >{/if}
         </div>{/each}
     </div>
     <p class="mt-12 text-center text-[10px] text-ink/40">
       {desktop
-        ? `本地图库 · ${librarySession.root}`
-        : "浏览器示例 · 不写入磁盘；请启动 Tauri 桌面版使用本地图库"}
+        ? tr("本地图库 · {0}", [librarySession.root])
+        : tr("浏览器示例 · 不写入磁盘；请启动 Tauri 桌面版使用本地图库")}
     </p>
   </section>
   {#if filtersOpen}<section
-      aria-label="搜索与筛选"
+      aria-label={tr("搜索与筛选")}
       class="glass-panel fixed bottom-[106px] left-1/2 z-30 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl p-5"
     >
       <div class="flex items-center gap-3">
@@ -637,13 +651,14 @@
           error={parsedQuery.error}
         /><button
           class="btn btn-ghost btn-sm btn-circle"
-          aria-label="收起搜索与筛选"
+          aria-label={tr("收起搜索与筛选")}
           onclick={() => (filtersOpen = false)}><X size={16} /></button
         >
       </div>
       <p class="mt-3 text-[10px] text-ink/45">
-        @人物 / #标签 精确匹配 · 空格默认为 AND · 优先级 NOT → AND → OR
-        <br />例：(@小明 OR @小蓝) AND NOT #重复 · 名称含空格用引号
+        {tr(
+          "@人物 / #标签 精确匹配 · 空格默认为 AND · 优先级 NOT → AND → OR",
+        )}<br />{tr("例：(@小明 OR @小蓝) AND NOT #重复 · 名称含空格用引号")}
       </p>
       <div
         class="mt-4 flex flex-wrap items-center gap-3 border-t border-ink/8 pt-3"
@@ -651,27 +666,27 @@
         <div class="flex items-center gap-1">
           <div class="w-40">
             <SelectMenu
-              label="相册排序"
+              label={tr("相册排序")}
               bind:value={sort}
-              options={sortOptions}
+              options={sortOptions.map((o) => ({ ...o, label: tr(o.label) }))}
             />
           </div>
           <button
             class={`btn btn-ghost btn-sm btn-circle ${descending ? "bg-ink/5" : ""}`}
             aria-label={descending
-              ? "当前倒序，切换为正序"
-              : "当前正序，切换为倒序"}
+              ? tr("当前倒序，切换为正序")
+              : tr("当前正序，切换为倒序")}
             title={sort === "date"
               ? descending
-                ? "新到旧"
-                : "旧到新"
+                ? tr("新到旧")
+                : tr("旧到新")
               : sort === "meetings"
                 ? descending
-                  ? "见面天数：多到少（团切最后）"
-                  : "见面天数：少到多（团切最后）"
+                  ? tr("见面天数：多到少（团切最后）")
+                  : tr("见面天数：少到多（团切最后）")
                 : descending
-                  ? "名称倒序"
-                  : "名称正序"}
+                  ? tr("名称倒序")
+                  : tr("名称正序")}
             aria-pressed={descending}
             onclick={() => (descending = !descending)}
           >
@@ -683,47 +698,52 @@
         </div>
         <div class="w-36">
           <SelectMenu
-            label="拍摄类型筛选"
+            label={tr("拍摄类型筛选")}
             bind:value={typeFilter}
-            options={[{ value: "", label: "所有拍摄类型" }, ...shotTypes]}
+            options={[
+              { value: "", label: tr("所有拍摄类型") },
+              ...shotTypes.map((value) => ({ value, label: tr(value) })),
+            ]}
           />
         </div>
         <div class="w-36">
-          <DatePicker label="跳转到日期" onselect={jumpToDate} />
+          <DatePicker label={tr("跳转到日期")} onselect={jumpToDate} />
         </div>
         <button
           class="btn btn-ghost btn-xs ml-auto"
           onclick={() => {
             typeFilter = "";
             query = "";
-          }}>重置</button
+          }}>{tr("重置")}</button
         >
       </div>
     </section>{/if}
   {#if selecting}<div
       class="glass-panel fixed bottom-24 left-1/2 z-20 flex w-max max-w-[95vw] -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-xs"
     >
-      <span>已选 {checked.length} 张</span><button
+      <span>{tr("已选 {0} 张", [checked.length])}</span><button
         class="btn btn-ghost btn-xs"
         onclick={() => {
           checked = visible.map((c) => c.id);
           confirmDelete = false;
-        }}>全选当前结果</button
+        }}>{tr("全选当前结果")}</button
       ><button
         class="btn btn-ghost btn-xs"
         onclick={() => {
           checked = [];
           confirmDelete = false;
-        }}>取消选择</button
+        }}>{tr("取消选择")}</button
       >{#if mode === "trash"}<button
           class="btn btn-ghost btn-sm"
           disabled={!checked.length}
-          onclick={() => restore()}><Undo2 size={14} />恢复</button
+          onclick={() => restore()}><Undo2 size={14} />{tr("恢复")}</button
         ><button
           class="btn btn-ghost btn-sm text-error"
           disabled={!checked.length || saving}
           onclick={purge}
-          >{purgeConfirm ? "再次确认：移至系统回收站" : "永久删除…"}</button
+          >{purgeConfirm
+            ? tr("再次确认：移至系统回收站")
+            : tr("永久删除…")}</button
         >{:else}<button
           class="btn btn-ghost btn-sm"
           disabled={checked.length < 2 || saving}
@@ -731,41 +751,47 @@
             merging = !merging;
             mergeId = checked[0];
             mergeConfirm = false;
-          }}>归并…</button
+          }}>{tr("归并…")}</button
         ><button
           class={`btn btn-sm rounded-full ${confirmDelete ? "bg-[#bd8273]/25" : "btn-ghost"}`}
           disabled={!checked.length}
           onclick={() => remove()}
           ><Trash2 size={14} />{confirmDelete
-            ? "再次点击确认删除"
-            : "移入回收站"}</button
+            ? tr("再次点击确认删除")
+            : tr("移入回收站")}</button
         >{/if}
     </div>{/if}
   {#if selecting && merging && mode !== "trash" && checked.length >= 2}
     <section
       class="glass-panel fixed bottom-40 left-1/2 z-30 w-[min(560px,90vw)] -translate-x-1/2 space-y-3 rounded-2xl p-5"
-      aria-label="批量归并"
+      aria-label={tr("批量归并")}
     >
       <div class="flex items-center justify-between">
-        <h2 class="text-sm">将 {checked.length} 张收藏归并</h2>
+        <h2 class="text-sm">{tr("将 {0} 张收藏归并", [checked.length])}</h2>
         <button class="btn btn-ghost btn-xs" onclick={() => (merging = false)}
-          >取消</button
+          >{tr("取消")}</button
         >
       </div>
       <p class="text-xs text-ink/50">
-        选择保留资料的收藏。其他收藏的影像归入此处，其原资料仍可从回收站恢复。
+        {tr(
+          "选择保留资料的收藏。其他收藏的影像归入此处，其原资料仍可从回收站恢复。",
+        )}
       </p>
       <div
         class="max-h-[40vh] space-y-1 overflow-auto"
         role="group"
-        aria-label="保留哪张收藏的资料"
+        aria-label={tr("保留哪张收藏的资料")}
       >
         {#each photos.filter((c) => checked.includes(c.id)) as c}{@const a =
             c.assets.find((a) => a.id === c.coverAssetId) ?? c.assets[0]}
           <button
             class={`flex w-full items-center gap-3 rounded-xl p-2 text-left ${mergeId === c.id ? "bg-tint/50 ring-1 ring-[#8c9d72]" : "hover:bg-surface/30"}`}
             aria-pressed={mergeId === c.id}
-            aria-label={`保留 ${c.date} ${title(c)} ${a?.filename ?? c.id}`}
+            aria-label={tr("保留 {0} {1} {2}", [
+              c.date,
+              collectionTitle(c),
+              a?.filename ?? c.id,
+            ])}
             disabled={saving}
             onclick={() => {
               mergeId = c.id;
@@ -778,9 +804,11 @@
                 />{:else}<Images size={20} />{/if}
             </div>
             <div class="min-w-0 flex-1">
-              <p class="text-xs">{c.date || "未定日期"} · {title(c)}</p>
+              <p class="text-xs">
+                {c.date || tr("未定日期")} · {collectionTitle(c)}
+              </p>
               <p class="mt-1 truncate text-[11px] text-ink/45">
-                {a?.filename ?? "无影像"} · {c.id.slice(0, 8)}
+                {a?.filename ?? tr("无影像")} · {c.id.slice(0, 8)}
               </p>
               {#if c.event}<p class="mt-1 truncate text-[11px] text-ink/40">
                   {c.event}
@@ -793,23 +821,24 @@
       <button
         class="btn glass-dark btn-sm w-full rounded-full text-white"
         disabled={saving}
-        onclick={merge}>{mergeConfirm ? "确认归并" : "归并所选影像"}</button
+        onclick={merge}
+        >{mergeConfirm ? tr("确认归并") : tr("归并所选影像")}</button
       >
     </section>
   {/if}
   <nav
-    aria-label="相册工具"
+    aria-label={tr("相册工具")}
     class="glass-light fixed bottom-7 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 sm:gap-3"
   >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${filtersOpen ? "bg-ink/5" : ""}`}
-      aria-label="搜索与筛选"
+      aria-label={tr("搜索与筛选")}
       aria-expanded={filtersOpen}
       onclick={() => (filtersOpen = !filtersOpen)}><Search size={17} /></button
     >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${mode === "favorites" ? "bg-[#b28b83]/20 text-danger-ink" : ""}`}
-      aria-label="筛选喜欢"
+      aria-label={tr("筛选喜欢")}
       aria-pressed={mode === "favorites"}
       onclick={() => changeMode("favorites")}
       ><Heart
@@ -819,13 +848,13 @@
     >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${mode === "inbox" ? "bg-[#8c9d72]/20" : ""}`}
-      aria-label="筛选 Inbox"
+      aria-label={tr("筛选 Inbox")}
       aria-pressed={mode === "inbox"}
       onclick={() => changeMode("inbox")}><Inbox size={17} /></button
     ><span class="h-5 border-l border-ink/10"></span>
     <input
       class="range range-xs w-20 text-accent-ink"
-      aria-label="照片大小"
+      aria-label={tr("照片大小")}
       type="range"
       min="150"
       max="290"
@@ -833,18 +862,18 @@
       bind:value={size}
     /><button
       class="btn btn-ghost btn-sm btn-circle"
-      aria-label="切换照片标题"
+      aria-label={tr("切换照片标题")}
       aria-pressed={labels}
       onclick={() => (labels = !labels)}><Info size={16} /></button
     >
     <span class="h-5 border-l border-ink/10"></span><button
       class="btn btn-sm glass-dark gap-2 rounded-full px-4 text-xs font-normal text-white"
       disabled={librarySession.busy || !librarySession.loaded}
-      onclick={() => prepareImport()}><Plus size={15} />导入</button
+      onclick={() => prepareImport()}><Plus size={15} />{tr("导入")}</button
     >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20 text-accent-ink" : ""}`}
-      aria-label="选择收藏"
+      aria-label={tr("选择收藏")}
       aria-pressed={selecting}
       onclick={() => {
         selecting = !selecting;
@@ -854,13 +883,13 @@
     >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${mode === "trash" ? "bg-[#b28b83]/20 text-danger-ink" : ""}`}
-      aria-label="回收站"
+      aria-label={tr("回收站")}
       aria-pressed={mode === "trash"}
       onclick={() => changeMode("trash")}><Trash2 size={16} /></button
     >
     <button
       class="btn btn-ghost btn-sm btn-circle"
-      aria-label="图库设置"
+      aria-label={tr("图库设置")}
       onclick={() => (settingsOpen = true)}><Settings2 size={16} /></button
     >
   </nav>
@@ -877,7 +906,7 @@
       draft = null;
     }}
     class="fixed inset-0 m-0 h-screen max-h-none w-screen max-w-none overflow-hidden border-0 bg-transparent p-0 text-base-content backdrop:bg-transparent"
-    aria-label="收藏聚焦预览"
+    aria-label={tr("收藏聚焦预览")}
   >
     <input
       class="hidden"
@@ -886,34 +915,34 @@
       multiple
       accept="image/jpeg,image/png,image/webp"
       onchange={browserImport}
-      aria-label="选择影像文件"
+      aria-label={tr("选择影像文件")}
     />
     <button
       class="absolute inset-0 h-full w-full cursor-default bg-tint/25 backdrop-blur-[28px] backdrop-saturate-75"
-      aria-label="点击背景返回相册"
+      aria-label={tr("点击背景返回相册")}
       tabindex="-1"
       disabled={saving || librarySession.busy}
       onclick={close}
     ></button>
     <div class="pointer-events-none relative flex h-full flex-col px-6 py-5">
       <header class="flex shrink-0 items-center justify-between">
-        <span class="text-xs text-ink/40">{title(selected)}</span>
+        <span class="text-xs text-ink/40">{collectionTitle(selected)}</span>
         <div
           class="glass-light pointer-events-auto flex items-center gap-2 rounded-full p-1"
         >
           {#if selected.deletedAt}<button
               class="btn btn-ghost btn-sm rounded-full text-xs"
               onclick={() => restore([selected!.id])}
-              ><Undo2 size={14} />恢复</button
+              ><Undo2 size={14} />{tr("恢复")}</button
             >{:else}<button
               class="btn btn-ghost btn-sm rounded-full text-xs"
-              aria-label="删除当前收藏"
+              aria-label={tr("删除当前收藏")}
               onclick={() => remove([selected!.id])}
-              ><Trash2 size={14} />{confirmDelete ? "确认删除" : ""}</button
+              ><Trash2 size={14} />{confirmDelete ? tr("确认删除") : ""}</button
             >{/if}
           <button
             class="btn btn-ghost btn-sm btn-circle text-danger-ink"
-            aria-label={selected.favorite ? "取消喜欢" : "设为喜欢"}
+            aria-label={selected.favorite ? tr("取消喜欢") : tr("设为喜欢")}
             disabled={saving}
             onclick={() => favorite(selected!)}
             ><Heart
@@ -922,12 +951,12 @@
             /></button
           ><button
             class="btn btn-ghost btn-sm btn-circle"
-            aria-label="切换收藏信息"
+            aria-label={tr("切换收藏信息")}
             aria-pressed={showInfo}
             onclick={() => (showInfo = !showInfo)}><Info size={17} /></button
           ><button
             class="btn btn-ghost btn-sm btn-circle"
-            aria-label="关闭预览"
+            aria-label={tr("关闭预览")}
             disabled={saving || librarySession.busy}
             onclick={close}><X size={18} /></button
           >
@@ -941,7 +970,7 @@
             class="min-h-0 w-full max-w-[760px] cursor-zoom-in overflow-hidden bg-transparent"
             role="button"
             tabindex="0"
-            aria-label="全窗口查看图像"
+            aria-label={tr("全窗口查看图像")}
             onclick={() => (fullView = true)}
             onkeydown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -957,7 +986,7 @@
                 src: original
                   ? currentAsset.baseSrc || currentAsset.src
                   : currentAsset.src,
-                title: title(selected),
+                title: collectionTitle(selected),
                 crop:
                   !desktop && currentAsset.crop
                     ? {
@@ -987,16 +1016,21 @@
                   role="tab"
                   aria-selected={infoTab === "metadata"}
                   class={`tab h-7 px-3 text-xs ${infoTab === "metadata" ? "tab-active" : ""}`}
-                  onclick={() => (infoTab = "metadata")}>收藏信息</button
+                  onclick={() => (infoTab = "metadata")}
+                  >{tr("收藏信息")}</button
                 ><button
                   role="tab"
                   aria-selected={infoTab === "assets"}
                   class={`tab h-7 px-3 text-xs ${infoTab === "assets" ? "tab-active" : ""}`}
-                  onclick={() => (infoTab = "assets")}>影像</button
+                  onclick={() => (infoTab = "assets")}>{tr("影像")}</button
                 >
               </div>
               <span class="text-[10px] text-ink/40"
-                >{dirty ? "未保存" : desktop ? "已保存到本地" : "示例"}</span
+                >{dirty
+                  ? tr("未保存")
+                  : desktop
+                    ? tr("已保存到本地")
+                    : tr("示例")}</span
               >
             </div>
             <fieldset
@@ -1006,36 +1040,45 @@
               {#if infoTab === "metadata"}
                 {#if selected.reviewFaces != null}
                   <div class="rounded-xl bg-tint/25 p-3 text-xs">
-                    <p class="font-medium">AI 建议待核验</p>
+                    <p class="font-medium">{tr("AI 建议待核验")}</p>
                     <p class="mt-1 leading-relaxed text-ink/60">
-                      本地检测到 {selected.reviewFaces} 张人脸，建议类型为 {selected.shotType}{selected.people.length
-                        ? `，并匹配到 ${selected.people.join("、")}`
-                        : "，未找到高置信度人物匹配"}。背景路人、侧脸或漏检可能影响结果，请核对。
+                      {tr(
+                        "本地检测到 {0} 张人脸，建议类型为 {1}{2}。背景路人、侧脸或漏检可能影响结果，请核对。",
+                        [
+                          selected.reviewFaces,
+                          tr(selected.shotType),
+                          selected.people.length
+                            ? tr("，并匹配到 {0}", [selected.people.join("、")])
+                            : tr("，未找到高置信度人物匹配"),
+                        ],
+                      )}
                     </p>
                     <button
                       class="btn btn-ghost btn-xs mt-2 rounded-full"
                       disabled={dirty ||
                         saving ||
                         !!peopleInput?.hasPendingInput()}
-                      onclick={confirmDetection}>确认已核验</button
+                      onclick={confirmDetection}>{tr("确认已核验")}</button
                     >
                     {#if dirty}<p class="mt-1 text-[10px] text-ink/50">
-                        先保存修改；调整了建议类型或人物时，保存会直接完成核验。
+                        {tr(
+                          "先保存修改；调整了建议类型或人物时，保存会直接完成核验。",
+                        )}
                       </p>{/if}
                   </div>
                 {/if}
                 <div>
-                  <p class="mb-1.5 text-[10px] text-ink/50">日期</p>
-                  <DatePicker label="收藏日期" bind:value={draft.date} />
+                  <p class="mb-1.5 text-[10px] text-ink/50">{tr("日期")}</p>
+                  <DatePicker label={tr("收藏日期")} bind:value={draft.date} />
                 </div>
                 <div>
                   <p class="mb-1.5 text-[10px] text-ink/50">
-                    {draft.shotType === "团切" ? "团体" : "人物"}
+                    {draft.shotType === "团切" ? tr("团体") : tr("人物")}
                   </p>
                   {#if draft.shotType === "团切"}<input
                       class="input input-sm w-full border-0 bg-surface/25 text-xs"
-                      aria-label="团体"
-                      placeholder="团体名称，不关联人物"
+                      aria-label={tr("团体")}
+                      placeholder={tr("团体名称，不关联人物")}
                       bind:value={draft.group}
                     />
                   {:else}<PersonPicker
@@ -1052,41 +1095,46 @@
                     />{/if}
                 </div>
                 <label class="block text-[10px] text-ink/50"
-                  >活动<input
-                    aria-label="活动"
+                  >{tr("活动")}<input
+                    aria-label={tr("活动")}
                     class="input input-sm mt-1.5 w-full border-transparent bg-surface/25 text-xs shadow-[inset_0_1px_3px_#28301e12]"
-                    placeholder="活动名称（可选）"
+                    placeholder={tr("活动名称（可选）")}
                     bind:value={draft.event}
                   /></label
                 >
                 <div>
-                  <p class="mb-1.5 text-[10px] text-ink/50">标签</p>
+                  <p class="mb-1.5 text-[10px] text-ink/50">{tr("标签")}</p>
                   <TokenInput
                     bind:this={tagsInput}
                     bind:values={draft.tags}
                     suggestions={allTags}
-                    label="标签"
+                    label={tr("标签")}
                     prefix="#"
-                    placeholder="添加标签…"
+                    placeholder={tr("添加标签…")}
                   />
                 </div>
                 <div>
-                  <p class="mb-1.5 text-[10px] text-ink/50">拍摄类型</p>
+                  <p class="mb-1.5 text-[10px] text-ink/50">{tr("拍摄类型")}</p>
                   <SelectMenu
-                    label="拍摄类型"
+                    label={tr("拍摄类型")}
                     value={draft.shotType}
-                    options={[...shotTypes]}
+                    options={[
+                      ...shotTypes.map((value) => ({
+                        value,
+                        label: tr(value),
+                      })),
+                    ]}
                     onchange={(v) => {
                       if (draft) draft.shotType = v as Metadata["shotType"];
                     }}
                   />
                 </div>
                 <label class="block text-[10px] text-ink/50"
-                  >备注<textarea
-                    aria-label="备注"
+                  >{tr("备注")}<textarea
+                    aria-label={tr("备注")}
                     class="textarea mt-1.5 w-full border-transparent bg-surface/25 text-xs"
                     rows="2"
-                    placeholder="写点什么…"
+                    placeholder={tr("写点什么…")}
                     bind:value={draft.notes}></textarea></label
                 >
               {:else}
@@ -1109,24 +1157,26 @@
                 {#if currentAsset.originalFilename !== currentAsset.filename}<p
                     class="break-all"
                   >
-                    原文件：{currentAsset.originalFilename}
+                    {tr("原文件：{0}", [currentAsset.originalFilename])}
                   </p>{/if}
                 <p>
                   {currentAsset.width && currentAsset.height
                     ? `${currentAsset.width} × ${currentAsset.height}`
-                    : "分辨率未知"} · {currentAsset.byteSize
+                    : tr("分辨率未知")} · {currentAsset.byteSize
                     ? formatBytes(currentAsset.byteSize)
-                    : "大小未知"}
+                    : tr("大小未知")}
                 </p>
                 <p>
                   {currentAsset.renditions.length
                     ? currentAsset.renditions
-                        .map((r) => (r.role === "original" ? "原件" : "浏览图"))
+                        .map((r) =>
+                          r.role === "original" ? tr("原件") : tr("浏览图"),
+                        )
                         .join(" · ")
-                    : "示例影像"}
+                    : tr("示例影像")}
                 </p>
                 {#if currentAsset.previewError}<p>
-                    {currentAsset.previewError}
+                    {message(currentAsset.previewError)}
                   </p>
                 {/if}
               </div>
@@ -1135,13 +1185,13 @@
                   target="_blank"
                   rel="noreferrer"
                   class="block text-[10px] text-ink/40 underline underline-offset-4"
-                  >示例图片来源 ↗</a
+                  >{tr("示例图片来源 ↗")}</a
                 >{/if}
               {#if error}<p
                   role="alert"
                   class="whitespace-pre-wrap text-xs text-danger-ink"
                 >
-                  {error}
+                  {message(error)}
                 </p>{/if}
             </fieldset>
             <div
@@ -1150,15 +1200,15 @@
               <span class="text-[10px] text-ink/40"
                 >{incomplete(draft)
                   ? draft.shotType === "团切"
-                    ? "补全日期与团体后离开 Inbox"
-                    : "补全日期与人物后离开 Inbox"
-                  : "信息完整"}</span
+                    ? tr("补全日期与团体后离开 Inbox")
+                    : tr("补全日期与人物后离开 Inbox")
+                  : tr("信息完整")}</span
               ><button
                 class="btn btn-sm glass-dark rounded-full px-4 text-xs font-normal text-white"
                 disabled={saving || librarySession.busy}
                 onclick={save}
                 >{#if saving}<span class="loading loading-spinner loading-xs"
-                  ></span>{:else}<Check size={13} />{/if}保存</button
+                  ></span>{:else}<Check size={13} />{/if}{tr("保存")}</button
               >
             </div>
           </aside>{/if}
@@ -1167,7 +1217,7 @@
         class="glass-dark pointer-events-auto relative mx-auto flex max-w-full shrink-0 items-center gap-4 rounded-2xl px-5 py-3 text-white/85"
       >
         <div class="shrink-0">
-          <p class="text-[11px]">这张收藏的影像</p>
+          <p class="text-[11px]">{tr("这张收藏的影像")}</p>
           <p class="mt-1 text-[10px] text-white/60">
             {imageIndex + 1} / {selected.assets.length}
           </p>
@@ -1175,7 +1225,7 @@
         <div class="flex max-w-[35vw] gap-3 overflow-x-auto p-1">
           {#each selected.assets as asset, i}<button
               class={`h-14 w-11 shrink-0 overflow-hidden rounded-sm ${i === imageIndex ? "ring-1 ring-white/75 ring-offset-2 ring-offset-[#555d4e]" : "opacity-40 hover:opacity-90"}`}
-              aria-label={`切换影像 ${asset.originalFilename}`}
+              aria-label={tr("切换影像 {0}", [asset.originalFilename])}
               aria-pressed={i === imageIndex}
               onclick={() => {
                 imageIndex = i;
@@ -1190,7 +1240,7 @@
         </div>
         <button
           class="btn btn-ghost btn-sm btn-circle bg-surface/10 text-white/80"
-          aria-label="为当前收藏添加影像"
+          aria-label={tr("为当前收藏添加影像")}
           disabled={librarySession.busy || saving}
           onclick={() => prepareImport(selectedId)}
           >{#if librarySession.busy}<span
@@ -1200,14 +1250,14 @@
         {#if selected.crop || currentAsset.crop}<button
             class="btn btn-ghost btn-sm text-[11px] font-normal text-white/85"
             onclick={() => (original = !original)}
-            >{original ? "收藏封面" : "完整影像"}</button
+            >{original ? tr("收藏封面") : tr("完整影像")}</button
           >{/if}
       </footer>
       {#if librarySession.busy}<p
           role="status"
           class="mt-2 text-center text-xs"
         >
-          正在保存原件并生成预览…
+          {tr("正在保存原件并生成预览…")}
         </p>{/if}
     </div>
     {#if fullView}<ImageViewer

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { sourceMessage, message, tr, displayPerson } from "$lib/i18n.svelte";
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import {
@@ -12,7 +13,7 @@
     Undo2,
   } from "@lucide/svelte";
   import { librarySession, loadLibrary } from "$lib/session.svelte";
-  import { normalize, personLabel } from "$lib/model";
+  import { normalize } from "$lib/model";
   import { trashPerson } from "$lib/people.svelte";
   import { notify } from "$lib/tasks.svelte";
   import PersonEditor from "$lib/PersonEditor.svelte";
@@ -58,10 +59,12 @@
       selected = [];
       confirmed = false;
       notify(
-        restore ? `已恢复 ${done} 位人物` : `已删除 ${done} 位人物，拍立得保留`,
+        restore
+          ? sourceMessage("已恢复 {0} 位人物", [done])
+          : sourceMessage("已删除 {0} 位人物，拍立得保留", [done]),
       );
     } catch (e) {
-      notify(`已处理 ${done} 位人物；${e}`, "error");
+      notify(sourceMessage("已处理 {0} 位人物；{1}", [done, e]), "error");
     } finally {
       busy = false;
     }
@@ -76,19 +79,19 @@
   });
 </script>
 
-<svelte:head><title>Cheki — 人物</title></svelte:head>
+<svelte:head><title>{tr("Cheki — 人物")}</title></svelte:head>
 <main
   class="min-h-screen bg-canvas px-8 pb-40 pt-28 text-base-content"
-  aria-label="人物总览"
+  aria-label={tr("人物总览")}
 >
   <header class="mx-auto mb-8 max-w-5xl">
     <h1 class="text-xs font-normal text-ink/40">
-      {trash ? "人物回收站" : "人物"} · {people.length}
+      {trash ? tr("人物回收站") : tr("人物")} · {people.length}
     </h1>
   </header>
   <section
     class="mx-auto grid max-w-5xl grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4"
-    aria-label="人物列表"
+    aria-label={tr("人物列表")}
   >
     {#each people as p}<a
         href={`/people/${p.id}`}
@@ -99,7 +102,7 @@
           }
         }}
         class={`group relative flex min-h-80 flex-col items-center rounded-2xl bg-surface/40 px-5 py-8 text-center shadow-sm transition hover:-translate-y-1 hover:bg-surface/65 ${selected.includes(p.id) ? "ring-2 ring-[#8c9d72]" : ""}`}
-        aria-label={`打开人物 ${personLabel(p)}`}
+        aria-label={tr("打开人物 {0}", [displayPerson(p)])}
       >
         {#if selecting}<span
             class="absolute right-4 top-4 grid size-5 place-items-center rounded-full bg-surface/65 text-accent-ink"
@@ -118,18 +121,18 @@
             >{/if}
         </div>
         <p class="mt-auto pt-5 text-xs text-ink/40">
-          {librarySession.photos.filter(
-            (c) => !c.deletedAt && c.peopleIds?.includes(p.id),
-          ).length} 张拍立得
+          {tr("{0} 张拍立得", [
+            librarySession.photos.filter(
+              (c) => !c.deletedAt && c.peopleIds?.includes(p.id),
+            ).length,
+          ])}
         </p>
-      </a>{:else}<p
-        class="col-span-full py-24 text-center text-sm text-ink/40"
-      >
+      </a>{:else}<p class="col-span-full py-24 text-center text-sm text-ink/40">
         {query
-          ? "没有找到这个名字"
+          ? tr("没有找到这个名字")
           : trash
-            ? "人物回收站是空的"
-            : "从收藏中添加人物，或在这里创建人物"}
+            ? tr("人物回收站是空的")
+            : tr("从收藏中添加人物，或在这里创建人物")}
       </p>{/each}
   </section>
   {#if selecting}<div
@@ -142,39 +145,39 @@
           selected =
             selected.length === people.length ? [] : people.map((p) => p.id);
           confirmed = false;
-        }}>全选</button
+        }}>{tr("全选")}</button
       ><span class="whitespace-nowrap text-xs text-ink/45"
-        >已选 {selected.length} 位</span
+        >{tr("已选 {0} 位", [selected.length])}</span
       >{#if trash}<button
           class="btn btn-ghost btn-sm rounded-full text-xs"
           disabled={busy || !selected.length}
-          onclick={() => batch(true)}><Undo2 size={14} />恢复</button
+          onclick={() => batch(true)}><Undo2 size={14} />{tr("恢复")}</button
         >{/if}<button
         class="btn btn-ghost btn-sm rounded-full text-xs text-danger-ink"
         disabled={busy || !selected.length}
         onclick={() => batch()}
         ><Trash2 size={14} />{confirmed
-          ? "再次点击确认"
+          ? tr("再次点击确认")
           : trash
-            ? "永久删除（资料进入系统回收站）"
-            : "移入人物回收站"}</button
+            ? tr("永久删除（资料进入系统回收站）")
+            : tr("移入人物回收站")}</button
       >
     </div>{/if}
   {#if librarySession.error}<p
       role="alert"
       class="mx-auto mt-6 max-w-5xl text-sm text-error"
     >
-      {librarySession.error}
+      {message(librarySession.error)}
     </p>{/if}
   <nav
-    aria-label="人物工具"
+    aria-label={tr("人物工具")}
     class="glass-light fixed bottom-7 left-1/2 z-20 flex w-max max-w-[95vw] -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2.5"
   >
     <label class="flex items-center gap-2"
       ><Search size={16} /><input
         class="w-44 bg-transparent text-xs outline-none"
-        aria-label="搜索人物或别名"
-        placeholder="名字、别名…"
+        aria-label={tr("搜索人物或别名")}
+        placeholder={tr("名字、别名…")}
         bind:value={query}
       /></label
     >
@@ -191,12 +194,12 @@
       }}
       ><Plus size={15} />{query.trim() &&
       librarySession.people.some((p) => normalize(p.name) === normalize(query))
-        ? "创建同名人物"
-        : "新建人物"}</button
+        ? tr("创建同名人物")
+        : tr("新建人物")}</button
     >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20" : ""}`}
-      aria-label="批量选择人物"
+      aria-label={tr("批量选择人物")}
       aria-pressed={selecting}
       disabled={busy}
       onclick={() => {
@@ -207,7 +210,7 @@
     >
     <button
       class={`btn btn-ghost btn-sm btn-circle ${trash ? "bg-[#b28b83]/20 text-danger-ink" : ""}`}
-      aria-label="人物回收站"
+      aria-label={tr("人物回收站")}
       aria-pressed={trash}
       disabled={busy}
       onclick={() => {
@@ -218,7 +221,7 @@
     >
     <button
       class="btn btn-ghost btn-sm btn-circle"
-      aria-label="图库设置"
+      aria-label={tr("图库设置")}
       onclick={() => (settings = true)}><Settings2 size={16} /></button
     >
   </nav>

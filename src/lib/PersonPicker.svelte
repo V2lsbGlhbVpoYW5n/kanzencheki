@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { tr, displayPerson } from "$lib/i18n.svelte";
   import { X, Plus } from "@lucide/svelte";
   import { librarySession } from "./session.svelte";
-  import { personLabel, normalize, type Person } from "./model";
+  import { normalize, type Person } from "./model";
   import PersonEditor from "./PersonEditor.svelte";
   let {
     ids = $bindable<string[]>([]),
@@ -86,11 +87,13 @@
         class="flex max-w-full items-center gap-1 rounded-md bg-tint/65 px-2 py-1 text-[11px]"
         ><span class="truncate"
           >{librarySession.people.find((p) => p.id === id)
-            ? personLabel(librarySession.people.find((p) => p.id === id)!)
-            : "已删除人物"}</span
+            ? displayPerson(librarySession.people.find((p) => p.id === id)!)
+            : tr("已删除人物")}</span
         ><button
           type="button"
-          aria-label={`移除人物 ${librarySession.people.find((p) => p.id === id)?.name ?? id}`}
+          aria-label={tr("移除人物 {0}", [
+            librarySession.people.find((p) => p.id === id)?.name ?? id,
+          ])}
           onclick={() => {
             ids = ids.filter((x) => x !== id);
             onchange?.();
@@ -100,12 +103,12 @@
     <input
       class="min-w-16 flex-1 bg-transparent p-1 text-xs outline-none"
       role="combobox"
-      aria-label="人物"
+      aria-label={tr("人物")}
       aria-expanded={focused}
       aria-controls={listId}
       aria-autocomplete="list"
       bind:value={text}
-      placeholder="搜索人物、别名，或创建"
+      placeholder={tr("搜索人物、别名，或创建")}
       onfocus={() => (focused = true)}
       onblur={() => (focused = false)}
       oninput={() => {
@@ -118,7 +121,7 @@
   {#if focused}<div
       id={listId}
       role="listbox"
-      aria-label="人物候选"
+      aria-label={tr("人物候选")}
       class="glass-panel absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-auto rounded-xl p-1.5"
     >
       {#each matches as p, i}<button
@@ -128,7 +131,7 @@
           class={`block w-full rounded-lg px-3 py-2 text-left text-xs ${active === i ? "bg-black/7" : ""}`}
           onpointerdown={(e) => e.preventDefault()}
           onclick={() => add(p)}
-          >{personLabel(p)}{#if p.aliases.length}<span
+          >{displayPerson(p)}{#if p.aliases.length}<span
               class="mt-1 block text-[10px] text-ink/40"
               >{p.aliases.join(" / ")}</span
             >{/if}</button
@@ -141,11 +144,11 @@
           onpointerdown={(e) => e.preventDefault()}
           onclick={create}
           ><Plus size={12} />{same
-            ? "创建同名人物"
-            : "创建人物"}“{text.trim()}”</button
+            ? tr("创建同名人物")
+            : tr("创建人物")}“{text.trim()}”</button
         >{/if}
       {#if !matches.length && !text.trim()}<p class="p-3 text-xs text-ink/40">
-          输入名字即可创建人物
+          {tr("输入名字即可创建人物")}
         </p>{/if}
     </div>{/if}
 </div>

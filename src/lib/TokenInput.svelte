@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tr } from "$lib/i18n.svelte";
   import { X, Plus } from "@lucide/svelte";
   import { normalize, unique } from "./model";
   let {
@@ -75,7 +76,7 @@
         ><span class="truncate">{prefix}{value}</span><button
           type="button"
           class="shrink-0 rounded hover:bg-ink/10"
-          aria-label={`移除${label} ${value}`}
+          aria-label={tr("移除{0} {1}", [label, value])}
           onclick={() => (values = values.filter((v) => v !== value))}
           ><X size={11} /></button
         ></span
@@ -90,7 +91,7 @@
       aria-activedescendant={focused && choices[active]
         ? `${listId}-${active}`
         : undefined}
-      {placeholder}
+      placeholder={tr(placeholder)}
       bind:value={text}
       oninput={() => {
         active = 0;
@@ -107,7 +108,7 @@
   {#if focused && choices.length > 0}<div
       id={listId}
       role="listbox"
-      aria-label={`${label}候选`}
+      aria-label={tr("{0}候选", [label])}
       class="glass-panel absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-auto rounded-xl p-1.5"
     >
       {#each choices as choice, i}<button
@@ -118,9 +119,10 @@
           class={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs ${active === i ? "bg-black/7" : ""}`}
           onpointerdown={(e) => e.preventDefault()}
           onclick={() => add(choice)}
-          >{#if i === candidates.length && canCreate}<Plus
-              size={12}
-            />创建“{choice}”{:else}{prefix}{choice}{/if}</button
+          >{#if i === candidates.length && canCreate}<Plus size={12} />{tr(
+              "创建“{0}”",
+              [choice],
+            )}{:else}{prefix}{choice}{/if}</button
         >{/each}
     </div>{/if}
 </div>

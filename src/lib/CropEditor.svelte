@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { sourceMessage, message, tr } from "$lib/i18n.svelte";
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import {
@@ -272,7 +273,7 @@
     busy = true;
     error = "";
     try {
-      if (!desktop) throw Error("四角校正预览请使用桌面版");
+      if (!desktop) throw Error(tr("四角校正预览请使用桌面版"));
       const bytes = await invoke<number[]>("crop_preview", {
         assetId: asset.id,
         crop,
@@ -298,9 +299,14 @@
           assetId: asset.id,
           crop: reset ? null : crop,
         });
-      else if (mode === "quad" && !reset) throw Error("四角校正请使用桌面版");
+      else if (mode === "quad" && !reset)
+        throw Error(tr("四角校正请使用桌面版"));
       else asset.crop = reset ? null : { ...crop };
-      notify(reset ? "已恢复完整影像" : "裁切与校正已保存，原件未修改");
+      notify(
+        reset
+          ? sourceMessage("已恢复完整影像")
+          : sourceMessage("裁切与校正已保存，原件未修改"),
+      );
       dialog.close();
     } catch (e) {
       error = String(e);
@@ -313,7 +319,7 @@
 <dialog
   bind:this={dialog}
   class="modal bg-scrim/30 backdrop-blur-xl"
-  aria-label="裁切与透视校正"
+  aria-label={tr("裁切与透视校正")}
   onclose={() => {
     stopDrag?.();
     onclose();
@@ -328,16 +334,18 @@
   >
     <header class="mb-4 flex items-center gap-3">
       <div class="flex-1">
-        <h2>裁切与透视校正</h2>
+        <h2>{tr("裁切与透视校正")}</h2>
         <p class="mt-1 text-xs text-ink/50">
-          {mode === "rect"
-            ? "拖动选区移动，拖动四角调整边缘"
-            : "依次对准拍立得的左上、右上、右下、左下角，再预览校正结果"} · 原件不变
+          {tr("{0} · 原件不变", [
+            mode === "rect"
+              ? tr("拖动选区移动，拖动四角调整边缘")
+              : tr("依次对准拍立得的左上、右上、右下、左下角，再预览校正结果"),
+          ])}
         </p>
       </div>
       <button
         class="btn btn-ghost btn-sm btn-circle"
-        aria-label="关闭裁切"
+        aria-label={tr("关闭裁切")}
         disabled={busy}
         onclick={() => dialog.close()}><X size={18} /></button
       >
@@ -347,31 +355,34 @@
         class={`btn btn-sm rounded-full ${mode === "rect" ? "bg-tint/50" : "btn-ghost"}`}
         aria-pressed={mode === "rect"}
         disabled={busy}
-        onclick={() => switchMode("rect")}><CropIcon size={14} />裁切</button
+        onclick={() => switchMode("rect")}
+        ><CropIcon size={14} />{tr("裁切")}</button
       ><button
         class={`btn btn-sm rounded-full ${mode === "quad" ? "bg-tint/50" : "btn-ghost"}`}
         aria-pressed={mode === "quad"}
         disabled={busy}
-        onclick={() => switchMode("quad")}><Scan size={14} />四角校正</button
+        onclick={() => switchMode("quad")}
+        ><Scan size={14} />{tr("四角校正")}</button
       >
       <div class="ml-auto w-52">
         <SelectMenu
-          label="输出比例"
+          label={tr("输出比例")}
           bind:value={shape}
           disabled={busy}
           onchange={fit}
           options={[
             {
               value: "free",
-              label: mode === "quad" ? "自由 · 根据边长估算" : "自由比例",
+              label:
+                mode === "quad" ? tr("自由 · 根据边长估算") : tr("自由比例"),
             },
             { value: "54/86", label: "Instax Mini · 54 × 86" },
             { value: "72/86", label: "Instax Square · 72 × 86" },
             { value: "108/86", label: "Instax Wide · 108 × 86" },
-            { value: "86/54", label: "Mini 横向" },
-            { value: "86/72", label: "Square 横向" },
-            { value: "86/108", label: "Wide 竖向" },
-            { value: "1/1", label: "正方形 · 1:1" },
+            { value: "86/54", label: tr("Mini 横向") },
+            { value: "86/72", label: tr("Square 横向") },
+            { value: "86/108", label: tr("Wide 竖向") },
+            { value: "1/1", label: tr("正方形 · 1:1") },
           ]}
         />
       </div>
@@ -384,7 +395,7 @@
       >
         <img
           src={asset.baseSrc || asset.src}
-          alt="完整影像，拖动四角调整"
+          alt={tr("完整影像，拖动四角调整")}
           draggable="false"
           class="block w-full"
           onload={(e) =>
@@ -415,7 +426,7 @@
             style:top={`${region.y * 100}%`}
             style:width={`${region.w * 100}%`}
             style:height={`${region.h * 100}%`}
-            aria-label="移动选区"
+            aria-label={tr("移动选区")}
             disabled={busy}
             onpointerdown={(e) => drag(e, null)}
             onkeydown={rectKeys}
@@ -424,7 +435,9 @@
             class="absolute grid size-6 -translate-x-1/2 -translate-y-1/2 touch-none place-items-center rounded-full bg-white text-[10px] text-black shadow-md ring-2 ring-black/20"
             style:left={`${p.x * 100}%`}
             style:top={`${p.y * 100}%`}
-            aria-label={`调整${["左上", "右上", "右下", "左下"][i]}角`}
+            aria-label={tr("调整{0}角", [
+              tr(["左上", "右上", "右下", "左下"][i]),
+            ])}
             disabled={busy}
             onpointerdown={(e) => drag(e, i)}
             onkeydown={(e) => {
@@ -461,38 +474,39 @@
         >
           <img
             src={preview}
-            alt="校正结果预览"
+            alt={tr("校正结果预览")}
             class="max-h-96 max-w-full object-contain"
           />
           <figcaption class="text-xs text-ink/45">
-            {previewStale ? "选区已改变，点击预览更新" : "结果预览"}
+            {previewStale ? tr("选区已改变，点击预览更新") : tr("结果预览")}
           </figcaption>
         </figure>{/if}
     </div>
     {#if !valid}<p class="mt-3 text-xs text-error">
-        四角不能交叉、重叠或形成凹角。
+        {tr("四角不能交叉、重叠或形成凹角。")}
       </p>{/if}{#if error}<p class="mt-3 text-xs text-error" role="alert">
-        {error}
+        {message(error)}
       </p>{/if}
     <footer class="mt-5 flex flex-wrap items-center gap-2">
       <button
         class="btn btn-ghost btn-sm rounded-full"
         disabled={!desktop || busy}
-        onclick={suggest}><ScanLine size={14} />边界建议</button
+        onclick={suggest}><ScanLine size={14} />{tr("边界建议")}</button
       ><button
         class="btn btn-ghost btn-sm rounded-full"
         disabled={busy}
-        onclick={() => save(true)}><RotateCcw size={14} />恢复完整影像</button
+        onclick={() => save(true)}
+        ><RotateCcw size={14} />{tr("恢复完整影像")}</button
       ><button
         class="btn btn-ghost btn-sm ml-auto rounded-full"
         disabled={busy || !valid}
-        onclick={render}><Eye size={14} />预览结果</button
+        onclick={render}><Eye size={14} />{tr("预览结果")}</button
       ><button
         class="btn glass-dark btn-sm rounded-full text-white"
         disabled={busy || !valid}
         onclick={() => save()}
         >{#if busy}<span class="loading loading-spinner loading-xs"
-          ></span>{:else}<Check size={14} />{/if}保存</button
+          ></span>{:else}<Check size={14} />{/if}{tr("保存")}</button
       >
     </footer>
   </div>

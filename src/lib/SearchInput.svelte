@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { tr, message, displayPerson } from "$lib/i18n.svelte";
   import { Search, X } from "@lucide/svelte";
   import { tick } from "svelte";
   import { activeToken, completeToken } from "./search";
-  import { normalize, unique, personLabel, type Person } from "./model";
+  import { normalize, unique, type Person } from "./model";
   let {
     value = $bindable(""),
     tags = [],
@@ -20,7 +21,24 @@
   let active = $state(0);
   const listId = $props.id();
   let token = $derived(activeToken(value, caret));
-  let choices = $derived(token ? (token.prefix === "@" ? people.filter(p=>!p.deletedAt && [p.name,p.description,...p.aliases].some(n=>normalize(n).includes(normalize(token!.term)))).map(personLabel) : unique(tags).filter(t=>normalize(t).includes(normalize(token!.term)))).slice(0,7) : []);
+  let choices = $derived(
+    token
+      ? (token.prefix === "@"
+          ? people
+              .filter(
+                (p) =>
+                  !p.deletedAt &&
+                  [p.name, p.description, ...p.aliases].some((n) =>
+                    normalize(n).includes(normalize(token!.term)),
+                  ),
+              )
+              .map(displayPerson)
+          : unique(tags).filter((t) =>
+              normalize(t).includes(normalize(token!.term)),
+            )
+        ).slice(0, 7)
+      : [],
+  );
   async function select(tag: string) {
     if (!token) return;
     const completed = completeToken(value, caret, tag);
@@ -59,8 +77,8 @@
     ><Search size={15} /><input
       bind:this={input}
       bind:value
-      aria-label="搜索收藏"
-      placeholder="@人物、#标签，或 AND / OR / NOT"
+      aria-label={tr("搜索收藏")}
+      placeholder={tr("@人物、#标签，或 AND / OR / NOT")}
       aria-invalid={!!error}
       aria-describedby={error ? `${listId}-error` : undefined}
       role="combobox"
@@ -94,7 +112,7 @@
       onkeydown={key}
     />{#if value}<button
         class="btn btn-ghost btn-xs btn-circle"
-        aria-label="清除搜索"
+        aria-label={tr("清除搜索")}
         onclick={() => {
           value = "";
           caret = 0;
@@ -104,7 +122,9 @@
   {#if focused && choices.length}<div
       id={listId}
       role="listbox"
-      aria-label={token?.prefix === "@" ? "搜索人物候选" : "搜索标签候选"}
+      aria-label={token?.prefix === "@"
+        ? tr("搜索人物候选")
+        : tr("搜索标签候选")}
       class="glass-panel absolute bottom-full left-0 right-0 z-50 mb-2 max-h-52 overflow-auto rounded-xl p-1.5"
     >
       {#each choices as choice, i}<button
@@ -121,6 +141,6 @@
       role="status"
       class="mt-2 px-2 text-xs text-error"
     >
-      {error}
+      {message(error)}
     </p>{/if}
 </div>

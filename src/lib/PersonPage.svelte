@@ -1,4 +1,11 @@
 <script lang="ts">
+  import {
+    sourceMessage,
+    collectionTitle,
+    message,
+    tr,
+    displayPerson,
+  } from "$lib/i18n.svelte";
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
@@ -36,8 +43,6 @@
   } from "./people.svelte";
   import {
     coverPhoto,
-    personLabel,
-    title,
     shotTypes,
     formatBytes,
     fileLabel,
@@ -135,9 +140,9 @@
       }
       selected = [];
       batchConfirm = false;
-      notify(`已处理 ${done} 项`);
+      notify(sourceMessage("已处理 {0} 项", [done]));
     } catch (e) {
-      error = `已处理 ${done} 项；${e}`;
+      error = tr("已处理 {0} 项；{1}", [done, e]);
       space = await getPersonSpace(personId);
     } finally {
       busy = false;
@@ -153,7 +158,7 @@
     try {
       space = await renamePersonFile(renaming, newName);
       renaming = null;
-      notify("附件已改名");
+      notify(sourceMessage("附件已改名"));
     } catch (e) {
       error = String(e);
     } finally {
@@ -198,14 +203,16 @@
         await trashPerson(person, false, purging);
         goto(purging ? "/people?trash" : "/people");
         notify(
-          purging ? "人物资料已移入系统回收站；拍立得保留" : "人物已移入回收站",
+          purging
+            ? sourceMessage("人物资料已移入系统回收站；拍立得保留")
+            : sourceMessage("人物已移入回收站"),
         );
       } else if ("mimeType" in removing) {
         space = await deletePersonFile(removing);
-        notify("附件已移入系统回收站");
+        notify(sourceMessage("附件已移入系统回收站"));
       } else {
         space = await deleteDocument(removing);
-        notify("文章已移入系统回收站");
+        notify(sourceMessage("文章已移入系统回收站"));
       }
       removing = null;
       confirm = false;
@@ -220,7 +227,7 @@
     busy = true;
     try {
       await trashPerson(person, true);
-      notify("人物已恢复");
+      notify(sourceMessage("人物已恢复"));
     } catch (e) {
       error = String(e);
     } finally {
@@ -234,7 +241,7 @@
   }
 </script>
 
-<svelte:head><title>{person?.name ?? "人物"} — Cheki</title></svelte:head>
+<svelte:head><title>{person?.name ?? tr("人物")} — Cheki</title></svelte:head>
 <input
   class="hidden"
   type="file"
@@ -248,18 +255,18 @@
 />
 <main
   class="min-h-screen bg-canvas px-8 pb-44 pt-28 text-base-content"
-  aria-label="人物档案"
+  aria-label={tr("人物档案")}
 >
   {#if person}<div class="mx-auto max-w-5xl">
       <header class="relative mx-auto mb-12 max-w-3xl text-center">
         <div class="absolute right-0 top-0 flex items-center gap-1">
           {#if !person.deletedAt}<button
               class="btn btn-ghost btn-sm btn-circle"
-              aria-label="编辑人物资料"
+              aria-label={tr("编辑人物资料")}
               onclick={() => (editing = true)}><Pencil size={16} /></button
             >{/if}<button
             class="btn btn-ghost btn-sm btn-circle text-danger-ink"
-            aria-label={person.deletedAt ? "永久删除人物" : "删除人物"}
+            aria-label={person.deletedAt ? tr("永久删除人物") : tr("删除人物")}
             disabled={busy}
             onclick={() => requestRemove("person")}><Trash2 size={16} /></button
           >
@@ -276,7 +283,7 @@
               >{person.description}</span
             >{/if}{#if person.deletedAt}<span
               class="badge border-0 bg-[#b28b83]/15 text-xs text-danger-ink"
-              >人物回收站</span
+              >{tr("人物回收站")}</span
             >{/if}
         </div>
         {#if person.aliases.length}<p class="mt-3 text-xs text-ink/40">
@@ -292,21 +299,23 @@
         >
           <div>
             <p class="text-base tabular-nums">{first || "—"}</p>
-            <p class="mt-2 text-[11px] text-ink/40">第一张拍立得</p>
+            <p class="mt-2 text-[11px] text-ink/40">{tr("第一张拍立得")}</p>
           </div>
           <div>
             <p class="text-base tabular-nums">
               {days !== null && days >= 0 ? days : "—"}<span
-                class="ml-1 text-xs text-ink/40">天</span
+                class="ml-1 text-xs text-ink/40">{tr("天")}</span
               >
             </p>
-            <p class="mt-2 text-[11px] text-ink/40">见面天数</p>
+            <p class="mt-2 text-[11px] text-ink/40">{tr("见面天数")}</p>
           </div>
           <div>
             <p class="text-base tabular-nums">
-              {chekis.length}<span class="ml-1 text-xs text-ink/40">张</span>
+              {chekis.length}<span class="ml-1 text-xs text-ink/40"
+                >{tr("张")}</span
+              >
             </p>
-            <p class="mt-2 text-[11px] text-ink/40">拍立得收藏</p>
+            <p class="mt-2 text-[11px] text-ink/40">{tr("拍立得收藏")}</p>
           </div>
         </div>
         {#if chekis.length}<div
@@ -315,17 +324,17 @@
             {#each shotTypes as t}{@const n = chekis.filter(
                 (c) => c.shotType === t,
               ).length}{#if n}<span
-                  >{t} <span class="ml-1 text-ink/65">{n}</span></span
+                  >{tr(t)} <span class="ml-1 text-ink/65">{n}</span></span
                 >{/if}{/each}
           </div>{/if}
       </header>
       <div class="mb-5 flex items-center gap-2 text-xs text-ink/40">
         <h2>
           {section === "chekis"
-            ? "拍立得"
+            ? tr("拍立得")
             : section === "files"
-              ? "附件"
-              : "文章"}
+              ? tr("附件")
+              : tr("文章")}
         </h2>
         <span>· {entries.length}</span>
       </div>
@@ -333,14 +342,14 @@
           class="mb-6 rounded-xl bg-error/10 p-4 text-xs text-error"
           role="alert"
         >
-          {error}
+          {message(error)}
         </p>{/if}
       <section
         aria-label={section === "chekis"
-          ? "人物拍立得"
+          ? tr("人物拍立得")
           : section === "files"
-            ? "人物附件"
-            : "人物文章"}
+            ? tr("人物附件")
+            : tr("人物文章")}
         class="divide-y divide-ink/8"
       >
         {#if section === "chekis"}
@@ -348,7 +357,10 @@
               c.assets.find((a) => a.id === c.coverAssetId) ?? c.assets[0]}
             <a
               href={`/?cheki=${c.id}&returnTo=${encodeURIComponent(`/people/${personId}`)}`}
-              aria-label={`打开拍立得 ${c.date} ${title(c)}`}
+              aria-label={tr("打开拍立得 {0} {1}", [
+                c.date,
+                collectionTitle(c),
+              ])}
               onclick={(e) => {
                 if (selecting) {
                   e.preventDefault();
@@ -368,20 +380,20 @@
                   />{:else}<Images size={24} />{/if}
               </div>
               <div class="min-w-0 flex-1">
-                <p class="text-sm">{c.event || title(c)}</p>
+                <p class="text-sm">{c.event || collectionTitle(c)}</p>
                 <p class="mt-1 truncate text-xs text-ink/45">
-                  {c.shotType}{#if c.tags.length}
+                  {tr(c.shotType)}{#if c.tags.length}
                     · {c.tags.map((t) => `#${t}`).join(" ")}{/if}
                 </p>
               </div>
               <span class="shrink-0 text-xs tabular-nums text-ink/50"
-                >{c.date || "日期待补充"}</span
+                >{c.date || tr("日期待补充")}</span
               ><span class="w-16 shrink-0 text-right text-[11px] text-ink/35"
-                >{c.assets.length} 份影像</span
+                >{tr("{0} 份影像", [c.assets.length])}</span
               >
             </a>
           {:else}<p class="py-12 text-center text-sm text-ink/40">
-              这里会汇集所有关联到 {person.name} 的拍立得。
+              {tr("这里会汇集所有关联到 {0} 的拍立得。", [person.name])}
             </p>{/each}
         {:else if section === "files"}
           {#each space.files as f}<article
@@ -389,7 +401,7 @@
             >
               <button
                 class="flex min-w-0 flex-1 items-center gap-4 text-left"
-                aria-label={`预览附件 ${fileLabel(f)}`}
+                aria-label={tr("预览附件 {0}", [fileLabel(f)])}
                 onclick={() => (selecting ? toggle(f.id) : (preview = f))}
               >
                 {#if selecting}<span
@@ -402,8 +414,9 @@
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-sm">{fileLabel(f)}</p>
                   <p class="mt-1 text-[11px] text-ink/40">
-                    {formatBytes(f.byteSize)}{#if !f.available}
-                      · 文件缺失{/if}
+                    {formatBytes(f.byteSize)}{#if !f.available}{tr(
+                        "· 文件缺失",
+                      )}{/if}
                   </p>
                 </div>
                 <span class="shrink-0 text-xs tabular-nums text-ink/45"
@@ -412,7 +425,7 @@
               </button>
               {#if !selecting && !person.deletedAt}<button
                   class="btn btn-ghost btn-xs btn-circle"
-                  aria-label={`改名附件 ${fileLabel(f)}`}
+                  aria-label={tr("改名附件 {0}", [fileLabel(f)])}
                   onclick={() => {
                     renaming = f;
                     newName = fileLabel(f);
@@ -420,11 +433,11 @@
                   }}><Pencil size={13} /></button
                 ><button
                   class="btn btn-ghost btn-xs btn-circle"
-                  aria-label={`删除附件 ${fileLabel(f)}`}
+                  aria-label={tr("删除附件 {0}", [fileLabel(f)])}
                   onclick={() => requestRemove(f)}><Trash2 size={13} /></button
                 >{/if}
             </article>{:else}<p class="py-12 text-center text-sm text-ink/40">
-              照片、视频、音频，都可以留在这里。
+              {tr("照片、视频、音频，都可以留在这里。")}
             </p>{/each}
         {:else}
           {#each space.documents as d}<article
@@ -446,17 +459,17 @@
                 ></button
               >{#if !selecting && !person.deletedAt}<button
                   class="btn btn-ghost btn-xs btn-circle"
-                  aria-label={`删除文章 ${d.title}`}
+                  aria-label={tr("删除文章 {0}", [d.title])}
                   onclick={() => requestRemove(d)}><Trash2 size={13} /></button
                 >{/if}
             </article>
           {:else}<p class="py-12 text-center text-sm text-ink/40">
-              演出后的心情，想对他说的话，写成一篇篇文章。
+              {tr("演出后的心情，想对他说的话，写成一篇篇文章。")}
             </p>{/each}
         {/if}
       </section>
       {#if loading}<p class="py-6 text-center text-xs text-ink/40">
-          正在打开人物文件夹…
+          {tr("正在打开人物文件夹…")}
         </p>{/if}
     </div>
     {#if selecting}<div
@@ -471,30 +484,30 @@
                 ? []
                 : entries.map((e) => e.id);
             batchConfirm = false;
-          }}>全选</button
+          }}>{tr("全选")}</button
         ><span class="whitespace-nowrap text-xs text-ink/45"
-          >已选 {selected.length} 项</span
+          >{tr("已选 {0} 项", [selected.length])}</span
         ><button
           class="btn btn-ghost btn-sm rounded-full text-xs text-danger-ink"
           disabled={busy || !selected.length}
           onclick={batchRemove}
           ><Trash2 size={14} />{batchConfirm
-            ? "再次点击确认"
+            ? tr("再次点击确认")
             : section === "chekis"
-              ? "移入相册回收站"
-              : "移入系统回收站"}</button
+              ? tr("移入相册回收站")
+              : tr("移入系统回收站")}</button
         >
       </div>{/if}
     <nav
-      aria-label="人物档案工具"
+      aria-label={tr("人物档案工具")}
       class="glass-light fixed bottom-7 left-1/2 z-20 flex w-max max-w-[95vw] -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5"
     >
       <a
         href="/people"
         class="btn btn-ghost btn-sm btn-circle"
-        aria-label="返回人物列表"><ArrowLeft size={17} /></a
+        aria-label={tr("返回人物列表")}><ArrowLeft size={17} /></a
       >
-      {#each [{ id: "chekis", name: "拍立得", icon: Images }, { id: "files", name: "附件", icon: Paperclip }, { id: "documents", name: "文章", icon: FileText }] as item}<button
+      {#each [{ id: "chekis", name: tr("拍立得"), icon: Images }, { id: "files", name: tr("附件"), icon: Paperclip }, { id: "documents", name: tr("文章"), icon: FileText }] as item}<button
           class={`btn btn-ghost btn-sm rounded-full text-xs font-normal ${section === item.id ? "bg-[#8c9d72]/20" : ""}`}
           aria-pressed={section === item.id}
           disabled={busy}
@@ -505,19 +518,20 @@
       {#if person.deletedAt}<button
           class="btn btn-ghost btn-sm rounded-full text-xs"
           disabled={busy}
-          onclick={restore}><Undo2 size={15} />恢复</button
+          onclick={restore}><Undo2 size={15} />{tr("恢复")}</button
         >{:else if section === "files"}<button
           class="btn glass-dark btn-sm rounded-full text-xs text-white"
           disabled={busy || librarySession.busy}
-          onclick={addFile}><Plus size={15} />添加附件</button
+          onclick={addFile}><Plus size={15} />{tr("添加附件")}</button
         >{:else if section === "documents"}<button
           class="btn glass-dark btn-sm rounded-full text-xs text-white"
           disabled={busy}
-          onclick={() => (article = "new")}><Plus size={15} />写文章</button
+          onclick={() => (article = "new")}
+          ><Plus size={15} />{tr("写文章")}</button
         >{/if}
       {#if !person.deletedAt}<button
           class={`btn btn-ghost btn-sm btn-circle ${selecting ? "bg-[#8c9d72]/20" : ""}`}
-          aria-label="批量选择"
+          aria-label={tr("批量选择")}
           aria-pressed={selecting}
           disabled={busy}
           onclick={() => {
@@ -528,28 +542,28 @@
         >{/if}
     </nav>
   {:else}<div class="py-28 text-center text-sm text-ink/40">
-      {loading ? "正在打开人物…" : "人物不存在或已永久删除"}<a
+      {loading ? tr("正在打开人物…") : tr("人物不存在或已永久删除")}<a
         href="/people"
-        class="mt-5 block underline">返回人物列表</a
+        class="mt-5 block underline">{tr("返回人物列表")}</a
       >
     </div>{/if}
 </main>
 {#if removing && person}<div
     class="glass-panel fixed bottom-28 left-1/2 z-30 w-96 -translate-x-1/2 rounded-2xl p-5"
     role="alertdialog"
-    aria-label="删除确认"
+    aria-label={tr("删除确认")}
   >
     <div class="flex justify-between">
       <p class="text-sm">
         {removing === "person"
           ? person.deletedAt
-            ? "永久删除人物"
-            : "删除人物"
-          : "移入系统回收站"}
+            ? tr("永久删除人物")
+            : tr("删除人物")
+          : tr("移入系统回收站")}
       </p>
       <button
         class="btn btn-ghost btn-xs btn-circle"
-        aria-label="取消删除"
+        aria-label={tr("取消删除")}
         disabled={busy}
         onclick={() => (removing = null)}><X size={14} /></button
       >
@@ -557,20 +571,24 @@
     <p class="my-3 text-xs leading-6 text-ink/55">
       {removing === "person"
         ? person.deletedAt
-          ? "人物附件和文章会移入系统回收站，收藏仅解除关联，拍立得原件保留。失去全部人物的收藏会回到 Inbox。"
-          : "人物进入回收站后仍保留文章、附件及收藏关系，可随时恢复。拍立得不会删除。"
-        : "文件会移入系统回收站，文章中的相关引用可能显示为已删除。"}
+          ? tr(
+              "人物附件和文章会移入系统回收站，收藏仅解除关联，拍立得原件保留。失去全部人物的收藏会回到 Inbox。",
+            )
+          : tr(
+              "人物进入回收站后仍保留文章、附件及收藏关系，可随时恢复。拍立得不会删除。",
+            )
+        : tr("文件会移入系统回收站，文章中的相关引用可能显示为已删除。")}
     </p>
     <button
       class="btn btn-sm rounded-full bg-[#b28b83]/20 text-danger-ink"
       disabled={busy}
       onclick={remove}
       >{busy
-        ? "正在处理…"
+        ? tr("正在处理…")
         : confirm
-          ? "再次点击确认删除"
-          : "我已了解，继续"}</button
-    >{#if error}<p class="mt-3 text-xs text-error">{error}</p>{/if}
+          ? tr("再次点击确认删除")
+          : tr("我已了解，继续")}</button
+    >{#if error}<p class="mt-3 text-xs text-error">{message(error)}</p>{/if}
   </div>{/if}
 {#if renaming}<dialog
     use:showRename
@@ -579,7 +597,7 @@
       if (!busy) renaming = null;
     }}
     class="modal bg-scrim/30 backdrop-blur-xl"
-    aria-label="附件改名"
+    aria-label={tr("附件改名")}
   >
     <form
       class="modal-box glass-panel max-w-md rounded-2xl"
@@ -588,26 +606,26 @@
         rename();
       }}
     >
-      <h2 class="mb-4 text-base">附件改名</h2>
+      <h2 class="mb-4 text-base">{tr("附件改名")}</h2>
       <input
         class="input w-full border-0 bg-surface/40"
-        aria-label="附件文件名"
+        aria-label={tr("附件文件名")}
         bind:value={newName}
         disabled={busy}
       />
       <p class="mt-3 text-xs text-ink/40">
-        保留扩展名。磁盘文件会同步改名，文章引用保持有效。
+        {tr("保留扩展名。磁盘文件会同步改名，文章引用保持有效。")}
       </p>
-      {#if error}<p class="mt-3 text-xs text-error">{error}</p>{/if}
+      {#if error}<p class="mt-3 text-xs text-error">{message(error)}</p>{/if}
       <div class="modal-action">
         <button
           type="button"
           class="btn btn-ghost btn-sm rounded-full"
           disabled={busy}
-          onclick={() => (renaming = null)}>取消</button
+          onclick={() => (renaming = null)}>{tr("取消")}</button
         ><button
           class="btn glass-dark btn-sm rounded-full text-white"
-          disabled={busy || !newName.trim()}>保存文件名</button
+          disabled={busy || !newName.trim()}>{tr("保存文件名")}</button
         >
       </div>
     </form>

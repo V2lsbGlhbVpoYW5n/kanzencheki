@@ -50,6 +50,7 @@ struct Progress {
     total: usize,
     state: String,
     detail: String,
+    literal_detail: bool,
 }
 fn progress(
     app: &tauri::AppHandle,
@@ -69,6 +70,7 @@ fn progress(
             total,
             state: state.into(),
             detail: detail.into(),
+            literal_detail: state == "running" && (title == "导入影像" || title == "导入人物附件"),
         },
     );
 }
@@ -79,6 +81,7 @@ async fn import_photos(
     options: ImportOptions,
     task_id: String,
     location_id: Option<String>,
+    locale: Option<String>,
 ) -> Result<Option<ImportReport>, String> {
     let paths = if let Some(location) = location_id {
         work(state.inner().clone(), move |s| s.location_files(&location)).await?
@@ -88,7 +91,14 @@ async fn import_photos(
             dialog_app
                 .dialog()
                 .file()
-                .add_filter("拍立得影像", &["jpg", "jpeg", "png", "webp", "tif", "tiff"])
+                .add_filter(
+                    match locale.as_deref() {
+                        Some("en") => "Cheki images",
+                        Some("ja") => "チェキ画像",
+                        _ => "拍立得影像",
+                    },
+                    &["jpg", "jpeg", "png", "webp", "tif", "tiff"],
+                )
                 .blocking_pick_files()
         })
         .await
