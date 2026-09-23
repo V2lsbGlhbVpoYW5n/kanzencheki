@@ -11,11 +11,12 @@
   import Settings from "$lib/Settings.svelte";
   import ImportSheet from "$lib/ImportSheet.svelte";
   import AssetPanel from "$lib/AssetPanel.svelte";
+  import BulkEditor from "$lib/BulkEditor.svelte";
   import SelectMenu from "$lib/SelectMenu.svelte";
   import DatePicker from "$lib/DatePicker.svelte";
   import { notify } from "$lib/tasks.svelte";
   import { trashChekis, catalogCommand } from "$lib/session.svelte";
-  import { Trash2, CheckSquare, Settings2, Undo2 } from "@lucide/svelte";
+  import { Trash2, CheckSquare, Settings2, Undo2, Pencil } from "@lucide/svelte";
   import { onMount, tick } from "svelte";
   import {
     Images,
@@ -132,6 +133,7 @@
     checked = [];
   }
   let merging = $state(false);
+  let bulkEditing = $state(false);
   let purgeConfirm = $state(false);
   $effect(() => {
     checked.join();
@@ -746,6 +748,10 @@
             : tr("永久删除…")}</button
         >{:else}<button
           class="btn btn-ghost btn-sm"
+          disabled={!checked.length || saving}
+          onclick={() => (bulkEditing = true)}><Pencil size={14} />{tr("批量修改")}</button
+        ><button
+          class="btn btn-ghost btn-sm"
           disabled={checked.length < 2 || saving}
           onclick={() => {
             merging = !merging;
@@ -761,6 +767,11 @@
             : tr("移入回收站")}</button
         >{/if}
     </div>{/if}
+  {#if bulkEditing && checked.length}<BulkEditor
+      items={photos.filter(c => checked.includes(c.id))}
+      onclose={() => (bulkEditing = false)}
+      onapplied={() => { bulkEditing = false; checked = []; selecting = false; }}
+    />{/if}
   {#if selecting && merging && mode !== "trash" && checked.length >= 2}
     <section
       class="glass-panel fixed bottom-40 left-1/2 z-30 w-[min(560px,90vw)] -translate-x-1/2 space-y-3 rounded-2xl p-5"
@@ -798,13 +809,13 @@
               mergeConfirm = false;
             }}
           >
-            <div class="grid h-16 w-14 shrink-0 place-items-center">
+            <div class="grid h-16 w-14 shrink-0 place-items-center overflow-hidden">
               {#if a?.src}<PhotoImage
                   photo={coverPhoto(c, desktop)}
                 />{:else}<Images size={20} />{/if}
             </div>
             <div class="min-w-0 flex-1">
-              <p class="text-xs">
+              <p class="truncate text-xs">
                 {c.date || tr("未定日期")} · {collectionTitle(c)}
               </p>
               <p class="mt-1 truncate text-[11px] text-ink/45">

@@ -1,4 +1,6 @@
+use super::geometry::validate_crop;
 use super::*;
+use anyhow::ensure;
 use image::imageops::FilterType;
 use rusqlite::OptionalExtension;
 
@@ -427,7 +429,7 @@ impl Store {
         }
         Ok(())
     }
-    fn generate_cache(&mut self, asset: &str) -> Result<()> {
+    pub(super) fn generate_cache(&mut self, asset: &str) -> Result<()> {
         let a = self
             .list()?
             .chekis
@@ -516,54 +518,185 @@ impl Store {
             .find(|a| a.id == asset)
             .context("找不到影像")?;
         let img = image::open(a.base_src)?.to_rgb8();
-        let (w, h) = img.dimensions();
-        // Axis-aligned scanner heuristic: find contrast against the corner background.
-        // This is a proposal; never silently commit a potentially incorrect crop.
-        let bg = img.get_pixel(0, 0).0;
-        let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
-        for y in (0..h).step_by(3) {
-            for x in (0..w).step_by(3) {
-                let p = img.get_pixel(x, y).0;
-                let d: i32 = (0..3).map(|i| (p[i] as i32 - bg[i] as i32).abs()).sum();
-                if d > 90 {
-                    x0 = x0.min(x);
-                    x1 = x1.max(x);
-                    y0 = y0.min(y);
-                    y1 = y1.max(y);
+        suggest_cheki_crop(&img)
+    }
+}
+/// Detect the dominant card against a reasonably uniform scanner or tabletop background.
+/// Returns a proposal only; the editor lets the user inspect and adjust all four corners.
+fn suggest_cheki_crop(source: &image::RgbImage) -> Result<Crop> {
+    use std::collections::VecDeque;
+    let (sw, sh) = source.dimensions();
+    ensure!(sw >= 48 && sh >= 48, "图像太小，无法判断拍立得边界");
+    let scale = (700.0 / sw.max(sh) as f64).min(1.0);
+    let w = ((sw as f64 * scale).round() as u32).max(1);
+    let h = ((sh as f64 * scale).round() as u32).max(1);
+    let img = image::imageops::resize(source, w, h, FilterType::Triangle);
+    let mut samples = [Vec::new(), Vec::new(), Vec::new()];
+    for x in (0..w).step_by(4) {
+        for y in [0, 1, h - 2, h - 1] {
+            for c in 0..3 {
+                samples[c].push(img.get_pixel(x, y).0[c]);
+            }
+        }
+    }
+    for y in (0..h).step_by(4) {
+        for x in [0, 1, w - 2, w - 1] {
+            for c in 0..3 {
+                samples[c].push(img.get_pixel(x, y).0[c]);
+            }
+        }
+    }
+    let mut bg = [0u8; 3];
+    let mut deviations = Vec::new();
+    for c in 0..3 {
+        samples[c].sort_unstable();
+        bg[c] = samples[c][samples[c].len() / 2];
+    }
+    for i in 0..samples[0].len() {
+        deviations.push(
+            (0..3)
+                .map(|c| (samples[c][i] as i16 - bg[c] as i16).unsigned_abs() as u32)
+                .sum::<u32>(),
+        );
+    }
+    deviations.sort_unstable();
+    let variation = deviations[deviations.len() / 2];
+    ensure!(variation < 65, "背景较复杂，暂无法可靠判断边界，请手动裁切");
+    let threshold = 30u32.max(variation * 3);
+    let size = (w * h) as usize;
+    let mut mask = vec![false; size];
+    for y in 0..h {
+        for x in 0..w {
+            let p = img.get_pixel(x, y).0;
+            let delta = (0..3)
+                .map(|c| (p[c] as i16 - bg[c] as i16).unsigned_abs() as u32)
+                .sum::<u32>();
+            mask[(y * w + x) as usize] = delta > threshold;
+        }
+    }
+    // A small closing step joins artwork and white margins into one card region.
+    for _ in 0..2 {
+        let before = mask.clone();
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                let i = (y * w + x) as usize;
+                if !before[i]
+                    && [i - 1, i + 1, i - w as usize, i + w as usize]
+                        .into_iter()
+                        .filter(|&n| before[n])
+                        .count()
+                        >= 3
+                {
+                    mask[i] = true;
                 }
             }
         }
-        if x1 <= x0 || y1 <= y0 {
-            bail!("未检测到清晰边界，请手动调整");
-        }
-        let bw = (x1 - x0) as f64;
-        let bh = (y1 - y0) as f64;
-        let ratios = [
-            54.0 / 86.0,
-            86.0 / 72.0,
-            108.0 / 86.0,
-            86.0 / 54.0,
-            72.0 / 86.0,
-            86.0 / 108.0,
-        ];
-        let ratio = *ratios
-            .iter()
-            .min_by(|a, b| ((bw / bh - **a).abs()).total_cmp(&(bw / bh - **b).abs()))
-            .unwrap();
-        let cw = bw.max(bh * ratio).min(w as f64);
-        let ch = (cw / ratio).min(h as f64);
-        let cw = ch * ratio;
-        let x = ((x0 + x1) as f64 / 2.0 - cw / 2.0).clamp(0.0, w as f64 - cw);
-        let y = ((y0 + y1) as f64 / 2.0 - ch / 2.0).clamp(0.0, h as f64 - ch);
-        Ok(Crop {
-            x: x / w as f64,
-            y: y / h as f64,
-            w: cw / w as f64,
-            h: ch / h as f64,
-            ..Default::default()
-        })
     }
+    let mut seen = vec![false; size];
+    let mut best = Vec::new();
+    for start in 0..size {
+        if !mask[start] || seen[start] {
+            continue;
+        }
+        let mut q = VecDeque::from([start]);
+        seen[start] = true;
+        let mut part = Vec::new();
+        while let Some(i) = q.pop_front() {
+            part.push(i);
+            let x = i % w as usize;
+            let y = i / w as usize;
+            for neighbor in [
+                if x > 0 { Some(i - 1) } else { None },
+                if x + 1 < w as usize {
+                    Some(i + 1)
+                } else {
+                    None
+                },
+                if y > 0 { Some(i - w as usize) } else { None },
+                if y + 1 < h as usize {
+                    Some(i + w as usize)
+                } else {
+                    None
+                },
+            ] {
+                if let Some(n) = neighbor {
+                    if mask[n] && !seen[n] {
+                        seen[n] = true;
+                        q.push_back(n);
+                    }
+                }
+            }
+        }
+        if part.len() > best.len() {
+            best = part;
+        }
+    }
+    ensure!(
+        (best.len() as f64) > (size as f64) * 0.07 && (best.len() as f64) < (size as f64) * 0.88,
+        "未检测到清晰的拍立得边界，请手动裁切"
+    );
+    let mut x0 = w;
+    let mut y0 = h;
+    let mut x1 = 0;
+    let mut y1 = 0;
+    let (mut tl, mut tr, mut br, mut bl) = (None, None, None, None);
+    for i in best {
+        let x = (i % w as usize) as u32;
+        let y = (i / w as usize) as u32;
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+        y1 = y1.max(y);
+        let sum = x + y;
+        let diff = x as i64 - y as i64;
+        if tl.is_none_or(|(_, v)| sum < v) {
+            tl = Some(((x, y), sum));
+        }
+        if br.is_none_or(|(_, v)| sum > v) {
+            br = Some(((x, y), sum));
+        }
+        if tr.is_none_or(|(_, v)| diff > v) {
+            tr = Some(((x, y), diff));
+        }
+        if bl.is_none_or(|(_, v)| diff < v) {
+            bl = Some(((x, y), diff));
+        }
+    }
+    let bw = x1.saturating_sub(x0);
+    let bh = y1.saturating_sub(y0);
+    ensure!(
+        bw > 20 && bh > 20 && x0 > 1 && y0 > 1 && x1 < w - 2 && y1 < h - 2,
+        "未检测到完整的拍立得边界，请手动裁切"
+    );
+    let aspect = bw as f64 / bh as f64;
+    ensure!(
+        (0.48..=2.05).contains(&aspect),
+        "检测到的区域比例不像拍立得，请手动裁切"
+    );
+    let margin = 2.0;
+    let mut result = Crop {
+        x: (x0 as f64 - margin).max(0.0) / w as f64,
+        y: (y0 as f64 - margin).max(0.0) / h as f64,
+        w: (bw as f64 + 2.0 * margin).min(w as f64) / w as f64,
+        h: (bh as f64 + 2.0 * margin).min(h as f64) / h as f64,
+        ..Default::default()
+    };
+    let points = [tl.unwrap().0, tr.unwrap().0, br.unwrap().0, bl.unwrap().0].map(|(x, y)| Point {
+        x: x as f64 / w as f64,
+        y: y as f64 / h as f64,
+    });
+    let axis_error = (((points[0].y - points[1].y).abs() + (points[2].y - points[3].y).abs())
+        * h as f64
+        / bh as f64)
+        + (((points[0].x - points[3].x).abs() + (points[1].x - points[2].x).abs()) * w as f64
+            / bw as f64);
+    if axis_error > 0.09 {
+        result.quad = Some(points);
+    }
+    validate_crop(&result)?;
+    Ok(result)
 }
+
 fn is_source(role: &str) -> bool {
     role == "original"
 }
@@ -575,6 +708,39 @@ fn quality(r: &Rendition) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn suggests_card_bounds_and_perspective_corners() {
+        let mut flat = image::RgbImage::from_pixel(400, 500, image::Rgb([34, 39, 44]));
+        for y in 65..425 {
+            for x in 90..315 {
+                flat.put_pixel(x, y, image::Rgb([228, 224, 208]));
+            }
+        }
+        let region = suggest_cheki_crop(&flat).unwrap();
+        assert!((region.x - 0.225).abs() < 0.02);
+        assert!((region.y - 0.13).abs() < 0.02);
+        assert!(region.quad.is_none());
+
+        let mut tilted = image::RgbImage::from_pixel(400, 500, image::Rgb([35, 40, 44]));
+        let corners = [(93.0, 72.0), (306.0, 94.0), (282.0, 433.0), (72.0, 404.0)];
+        for y in 0..500 {
+            for x in 0..400 {
+                let inside = (0..4).all(|i| {
+                    let a = corners[i];
+                    let b = corners[(i + 1) % 4];
+                    (b.0 - a.0) * (y as f64 - a.1) - (b.1 - a.1) * (x as f64 - a.0) >= 0.0
+                });
+                if inside {
+                    tilted.put_pixel(x, y, image::Rgb([232, 226, 210]));
+                }
+            }
+        }
+        let region = suggest_cheki_crop(&tilted).unwrap();
+        assert!(region.quad.is_some());
+        let q = region.quad.unwrap();
+        assert!((q[0].x - 93.0 / 400.0).abs() < 0.04);
+        assert!((q[2].y - 433.0 / 500.0).abs() < 0.04);
+    }
     fn photo(root: &Path, name: &str, w: u32, h: u32) -> PathBuf {
         let p = root.join(name);
         image::RgbImage::from_fn(w, h, |x, y| {

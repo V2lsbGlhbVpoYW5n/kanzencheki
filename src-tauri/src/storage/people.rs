@@ -88,7 +88,7 @@ impl Store {
     pub fn people(&self) -> Result<Vec<Person>> {
         Ok(self.db.prepare("SELECT id,name,description,aliases_json,notes,deleted_at,created_at FROM people ORDER BY name,id")?.query_map([],|r|Ok(Person{id:r.get(0)?,name:r.get(1)?,description:r.get(2)?,aliases:serde_json::from_str(&r.get::<_,String>(3)?).unwrap_or_default(),notes:r.get(4)?,deleted_at:r.get(5)?,created_at:r.get(6)?}))?.collect::<rusqlite::Result<_>>()?)
     }
-    fn person(&self, person: &str, active: bool) -> Result<Person> {
+    pub(super) fn person(&self, person: &str, active: bool) -> Result<Person> {
         let p = self
             .people()?
             .into_iter()

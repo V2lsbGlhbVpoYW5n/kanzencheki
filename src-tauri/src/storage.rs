@@ -1,4 +1,6 @@
+mod backup;
 mod catalog;
+pub use backup::{BackupResult, BackupSnapshot, RestorePlan, RestorePolicy, RestoreResult};
 mod detection;
 mod editing;
 pub use detection::{DetectionJob, DetectionReference};
@@ -34,6 +36,15 @@ pub struct Metadata {
     pub shot_type: String,
     pub notes: String,
     pub favorite: bool,
+}
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchPatch {
+    pub date: Option<String>,
+    pub people_ids: Option<Vec<String>>,
+    pub group: Option<String>,
+    pub event: Option<String>,
+    pub shot_type: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -254,9 +265,13 @@ impl Store {
         store.migrate(version)?;
         store.migrate_people()?;
         store.migrate_detection()?;
+        store
+            .db
+            .execute_batch("CREATE TABLE IF NOT EXISTS restore_runs(id TEXT PRIMARY KEY);")?;
         store.recover_document_writes()?;
         store.recover_rotations()?;
         store.recover_renames()?;
+        store.recover_restores()?;
         // A durable import manifest bridges the filesystem and SQLite transaction.
         for entry in fs::read_dir(store.root.join("staging"))? {
             let path = entry?.path();
@@ -453,6 +468,86 @@ impl Store {
         }
         tx.commit()?;
         self.recover_renames()?;
+        self.list()
+    }
+    pub fn batch_update(&mut self, ids: &[String], patch: BatchPatch) -> Result<Library> {
+        if ids.is_empty() || ids.iter().collect::<HashSet<_>>().len() != ids.len() {
+            bail!("请选择要修改的收藏");
+        }
+        self.recover_renames()?;
+        let people = if let Some(ref ids) = patch.people_ids {
+            let mut names = Vec::with_capacity(ids.len());
+            for id in ids {
+                names.push(self.person(id, false)?.name);
+            }
+            Some(names)
+        } else {
+            None
+        };
+        let library = self.list()?;
+        let mut edits = Vec::with_capacity(ids.len());
+        let mut destinations = HashSet::new();
+        for id in ids {
+            let c = library
+                .chekis
+                .iter()
+                .find(|c| &c.id == id && c.deleted_at.is_none())
+                .context("请选择相册中的收藏")?;
+            let mut m = c.metadata.clone();
+            if let Some(ref v) = patch.date {
+                m.date = v.clone();
+            }
+            if let Some(ref v) = patch.event {
+                m.event = v.clone();
+            }
+            if let Some(ref v) = patch.shot_type {
+                m.shot_type = v.clone();
+            }
+            if let Some(ref v) = patch.group {
+                m.group = v.clone();
+            }
+            if let Some(ref names) = people {
+                m.people = names.clone();
+                m.people_ids = patch.people_ids.clone();
+            }
+            m = validate(m)?;
+            if m.shot_type == "团切" {
+                m.people_ids = Some(vec![]);
+            }
+            // Preflight every physical rename before the first metadata write.
+            for a in &c.assets {
+                if let Some(r) = a.renditions.iter().find(|r| r.role == "original") {
+                    let old = Path::new(&r.relative_path);
+                    let ext = old.extension().and_then(|s| s.to_str()).unwrap_or("bin");
+                    let new = old
+                        .parent()
+                        .unwrap_or(Path::new(""))
+                        .join(asset_filename(&m, &a.id, ext));
+                    if new != old {
+                        let root = if r.location_id == "local" {
+                            self.root.clone()
+                        } else {
+                            PathBuf::from(self.db.query_row(
+                                "SELECT path FROM locations WHERE id=?1",
+                                [&r.location_id],
+                                |row| row.get::<_, String>(0),
+                            )?)
+                        };
+                        if !root.join(old).is_file() {
+                            bail!("原件离线，未保存批量修改：{}", old.display());
+                        }
+                        let target = root.join(new);
+                        if target.exists() || !destinations.insert(target.clone()) {
+                            bail!("文件名冲突：{}", target.display());
+                        }
+                    }
+                }
+            }
+            edits.push((id.clone(), m));
+        }
+        for (id, m) in edits {
+            self.update(&id, m)?;
+        }
         self.list()
     }
     fn recover_renames(&mut self) -> Result<()> {
@@ -699,6 +794,48 @@ mod tests {
             .save(&path)
             .unwrap();
         path
+    }
+    #[test]
+    fn batch_edit_updates_selected_fields_and_preflights_all_items() {
+        let tmp = tempfile::tempdir().unwrap();
+        let one = picture(tmp.path(), "one.png");
+        let two = picture(tmp.path(), "two.png");
+        let mut store = Store::open(tmp.path().join("library")).unwrap();
+        let imported = store.import(vec![one, two], None).unwrap().library;
+        let ids: Vec<_> = imported.chekis.iter().map(|c| c.id.clone()).collect();
+        assert_eq!(ids.len(), 2);
+        let result = store
+            .batch_update(
+                &ids,
+                BatchPatch {
+                    date: Some("2026-08-27".into()),
+                    event: Some("公演".into()),
+                    shot_type: Some("2 shot".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        for c in result.chekis {
+            assert_eq!(c.metadata.date, "2026-08-27");
+            assert_eq!(c.metadata.event, "公演");
+            assert_eq!(c.metadata.shot_type, "2 shot");
+            assert!(c.assets[0].filename.starts_with("2026-08-27_"));
+        }
+        assert!(store
+            .batch_update(
+                &ids,
+                BatchPatch {
+                    date: Some("bad".into()),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(store
+            .list()
+            .unwrap()
+            .chekis
+            .iter()
+            .all(|c| c.metadata.date == "2026-08-27"));
     }
     #[test]
     fn import_update_reopen_preserves_original_and_relations() {

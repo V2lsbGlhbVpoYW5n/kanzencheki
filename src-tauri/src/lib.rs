@@ -3,8 +3,9 @@ mod media;
 mod storage;
 use std::sync::{Arc, Mutex};
 use storage::{
-    Crop, DocumentContent, DocumentDraft, ImageView, ImportOptions, ImportReport, Library,
-    Metadata, Person, PersonDraft, PersonSpace, Store,
+    BackupResult, BackupSnapshot, BatchPatch, Crop, DocumentContent, DocumentDraft, ImageView,
+    ImportOptions, ImportReport, Library, Metadata, Person, PersonDraft, PersonSpace, RestorePlan,
+    RestorePolicy, RestoreResult, Store,
 };
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -36,6 +37,14 @@ async fn cheki_update(
     metadata: Metadata,
 ) -> Result<Library, String> {
     work(state.inner().clone(), move |s| s.update(&id, metadata)).await
+}
+#[tauri::command]
+async fn cheki_batch_update(
+    state: State<'_, Backend>,
+    ids: Vec<String>,
+    patch: BatchPatch,
+) -> Result<Library, String> {
+    work(state.inner().clone(), move |s| s.batch_update(&ids, patch)).await
 }
 #[tauri::command]
 async fn detection_confirm(state: State<'_, Backend>, id: String) -> Result<Library, String> {
@@ -70,7 +79,8 @@ fn progress(
             total,
             state: state.into(),
             detail: detail.into(),
-            literal_detail: state == "running" && (title == "导入影像" || title == "导入人物附件"),
+            literal_detail: state == "running"
+                && (["导入影像", "导入人物附件", "备份储存", "恢复备份"].contains(&title)),
         },
     );
 }
@@ -198,6 +208,123 @@ async fn location_add(
     })
     .await
     .map(Some)
+}
+#[tauri::command]
+async fn backup_choose_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let folder =
+        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+            .await
+            .map_err(|e| e.to_string())?;
+    folder
+        .map(|p| {
+            p.into_path()
+                .map(|p| p.to_string_lossy().into_owned())
+                .map_err(|e| e.to_string())
+        })
+        .transpose()
+}
+#[tauri::command]
+async fn backup_create(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    location_id: String,
+    repo: String,
+    task_id: String,
+) -> Result<BackupResult, String> {
+    let emitter = app.clone();
+    let task = task_id.clone();
+    let result = work(state.inner().clone(), move |s| {
+        s.backup_location(
+            &location_id,
+            std::path::Path::new(&repo),
+            |done, total, file| {
+                progress(&emitter, &task, "备份储存", done, total, "running", file);
+            },
+        )
+    })
+    .await;
+    progress(
+        &app,
+        &task_id,
+        "备份储存",
+        1,
+        1,
+        if result.is_ok() { "done" } else { "error" },
+        &match &result {
+            Ok(r) => format!("备份完成：新增 {} 份，复用 {} 份", r.copied, r.reused),
+            Err(e) => e.clone(),
+        },
+    );
+    result
+}
+#[tauri::command]
+async fn backup_snapshots(
+    state: State<'_, Backend>,
+    repo: String,
+) -> Result<Vec<BackupSnapshot>, String> {
+    work(state.inner().clone(), move |s| {
+        s.backup_list(std::path::Path::new(&repo))
+    })
+    .await
+}
+#[tauri::command]
+async fn backup_plan(
+    state: State<'_, Backend>,
+    repo: String,
+    snapshot: String,
+    target: Option<String>,
+) -> Result<RestorePlan, String> {
+    work(state.inner().clone(), move |s| {
+        s.restore_plan(
+            std::path::Path::new(&repo),
+            &snapshot,
+            target.as_deref().map(std::path::Path::new),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn backup_restore(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    repo: String,
+    snapshot: String,
+    target: Option<String>,
+    policy: RestorePolicy,
+    expected_token: String,
+    task_id: String,
+) -> Result<RestoreResult, String> {
+    let emitter = app.clone();
+    let task = task_id.clone();
+    let result = work(state.inner().clone(), move |s| {
+        s.restore_backup(
+            std::path::Path::new(&repo),
+            &snapshot,
+            target.as_deref().map(std::path::Path::new),
+            policy,
+            &expected_token,
+            |done, total, file| {
+                progress(&emitter, &task, "恢复备份", done, total, "running", file);
+            },
+        )
+    })
+    .await;
+    progress(
+        &app,
+        &task_id,
+        "恢复备份",
+        1,
+        1,
+        if result.is_ok() { "done" } else { "error" },
+        &match &result {
+            Ok(r) => format!(
+                "恢复完成：{} 份文件已恢复，{} 份跳过",
+                r.restored, r.skipped
+            ),
+            Err(e) => e.clone(),
+        },
+    );
+    result
 }
 #[tauri::command]
 async fn cheki_trash(
@@ -547,6 +674,12 @@ pub fn run() {
             asset_delete,
             library_clear_local,
             cheki_update,
+            cheki_batch_update,
+            backup_choose_folder,
+            backup_create,
+            backup_snapshots,
+            backup_plan,
+            backup_restore,
             import_photos,
             location_add,
             location_remove,

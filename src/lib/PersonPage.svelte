@@ -374,13 +374,13 @@
                   aria-hidden="true"
                   >{#if selected.includes(c.id)}<Check size={14} />{/if}</span
                 >{/if}
-              <div class="grid h-16 w-14 shrink-0 place-items-center">
+              <div class="grid h-16 w-14 shrink-0 place-items-center overflow-hidden">
                 {#if a?.src}<PhotoImage
                     photo={coverPhoto(c, desktop)}
                   />{:else}<Images size={24} />{/if}
               </div>
               <div class="min-w-0 flex-1">
-                <p class="text-sm">{c.event || collectionTitle(c)}</p>
+                <p class="truncate text-sm">{c.event || collectionTitle(c)}</p>
                 <p class="mt-1 truncate text-xs text-ink/45">
                   {tr(c.shotType)}{#if c.tags.length}
                     · {c.tags.map((t) => `#${t}`).join(" ")}{/if}

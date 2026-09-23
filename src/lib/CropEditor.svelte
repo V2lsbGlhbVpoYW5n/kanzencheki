@@ -259,8 +259,12 @@
     busy = true;
     error = "";
     try {
-      region = await invoke<Crop>("crop_suggest", { assetId: asset.id });
-      mode = "rect";
+      const suggestion = await invoke<Crop>("crop_suggest", { assetId: asset.id });
+      region = suggestion;
+      if (suggestion.quad) {
+        quad = suggestion.quad;
+        mode = "quad";
+      } else mode = "rect";
       shape = "free";
     } catch (e) {
       error = String(e);

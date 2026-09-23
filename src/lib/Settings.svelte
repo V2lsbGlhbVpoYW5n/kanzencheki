@@ -8,7 +8,8 @@
     setLanguage,
     type Locale,
   } from "$lib/i18n.svelte";
-  import { X, FolderPlus, HardDrive, RefreshCw } from "@lucide/svelte";
+  import { X, FolderPlus, HardDrive, RefreshCw, Archive, RotateCcw } from "@lucide/svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import {
     librarySession,
     desktop,
@@ -16,8 +17,9 @@
     importDesktop,
     loadLibrary,
     catalogCommand,
+    receive,
   } from "./session.svelte";
-  import { notify } from "./tasks.svelte";
+  import { notify, startTask, watchTasks, updateTask } from "./tasks.svelte";
   import {
     appearance,
     setAppearance,
@@ -30,6 +32,85 @@
   let dialog: HTMLDialogElement;
   let working = $state(false);
   let removing = $state<string | null>(null);
+  type Snapshot = { id: string; locationId: string; locationName: string; createdAt: string; fileCount: number; byteCount: number };
+  type Conflict = { path: string; backupBytes: number; currentBytes: number; backupModifiedMs: number; currentModifiedMs: number; backupNewer: boolean };
+  type Plan = { snapshot: Snapshot; conflicts: Conflict[]; missing: number; unchanged: number; targetPath: string; token: string };
+  let backupBusy = $state(false);
+  let backupRepo = $state("");
+  let snapshots = $state<Snapshot[]>([]);
+  let plan = $state<Plan | null>(null);
+  let restoreTarget = $state<string | null>(null);
+  let backupError = $state("");
+  async function chooseFolder() { return await invoke<string | null>("backup_choose_folder"); }
+  function readable(bytes: number) { return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`; }
+  function when(ms: number) { return new Date(ms).toLocaleString(language.current); }
+  function failTask(id: string, title: string, error: unknown) {
+    updateTask({ id, title, detail: String(error), state: "error", done: 1, total: 1 });
+  }
+  async function createBackup(id: string, changeFolder = false) {
+    if (backupBusy || librarySession.busy) return;
+    backupError = "";
+    try {
+      const remembered = localStorage.getItem(`cheki-backup-${id}`);
+      const folder = changeFolder ? await chooseFolder() : remembered || await chooseFolder();
+      if (!folder) return;
+      backupBusy = true;
+      await watchTasks();
+      const taskId = startTask(sourceMessage("备份储存"));
+      try {
+        await invoke("backup_create", { locationId: id, repo: folder, taskId });
+        localStorage.setItem(`cheki-backup-${id}`, folder);
+        backupRepo = folder;
+        snapshots = await invoke<Snapshot[]>("backup_snapshots", { repo: folder });
+      } catch (e) { failTask(taskId, sourceMessage("备份储存"), e); throw e; }
+    } catch (e) { backupError = String(e); }
+    finally { backupBusy = false; }
+  }
+  async function browseBackups() {
+    if (backupBusy) return;
+    backupError = "";
+    try {
+      const folder = await chooseFolder();
+      if (!folder) return;
+      backupBusy = true;
+      backupRepo = folder;
+      plan = null;
+      snapshots = await invoke<Snapshot[]>("backup_snapshots", { repo: folder });
+    } catch (e) { backupError = String(e); }
+    finally { backupBusy = false; }
+  }
+  async function inspectRestore(snapshot: Snapshot) {
+    if (backupBusy) return;
+    backupError = "";
+    const current = librarySession.locations.find(l => l.id === snapshot.locationId);
+    try {
+      const target = snapshot.locationId === "local" || current?.online ? null : await chooseFolder();
+      if (snapshot.locationId !== "local" && !current?.online && !target) return;
+      backupBusy = true;
+      restoreTarget = target;
+      plan = await invoke<Plan>("backup_plan", { repo: backupRepo, snapshot: snapshot.id, target });
+    } catch (e) { backupError = String(e); }
+    finally { backupBusy = false; }
+  }
+  async function restore(policy: "newer" | "skip") {
+    if (!plan || backupBusy || librarySession.busy) return;
+    backupBusy = true;
+    backupError = "";
+    await watchTasks();
+    const taskId = startTask(sourceMessage("恢复备份"));
+    try {
+      const result = await invoke<{ library: import("./model").Library }>("backup_restore", {
+        repo: backupRepo, snapshot: plan.snapshot.id, target: restoreTarget, policy, expectedToken: plan.token, taskId,
+      });
+      receive(result.library);
+      plan = null;
+    } catch (e) {
+      failTask(taskId, sourceMessage("恢复备份"), e);
+      backupError = String(e);
+      if (backupError.includes("文件状态已变化")) plan = null;
+    }
+    finally { backupBusy = false; }
+  }
   function locationCount(id: string) {
     return new Set(
       librarySession.photos
@@ -210,6 +291,12 @@
           >
         </div>
         <p class="mt-2 break-all text-[11px] text-ink/40">{location.path}</p>
+        <div class="mt-3 flex gap-2">
+          <button class="btn btn-ghost btn-xs" disabled={!desktop || !location.online || backupBusy || working}
+            onclick={() => createBackup(location.id)}><Archive size={13}/>{tr("备份此目录")}</button>
+          <button class="btn btn-ghost btn-xs" disabled={!desktop || !location.online || backupBusy || working}
+            onclick={() => createBackup(location.id, true)}>{tr("选择新备份位置…")}</button>
+        </div>
         {#if location.id !== "local"}<div class="mt-3 flex gap-2">
             <button
               class="btn btn-ghost btn-xs"
@@ -253,6 +340,41 @@
               >
             </div>{/if}{/if}
       </div>{/each}
+    <section class="mt-5 rounded-2xl bg-surface/25 p-4" aria-label={tr("备份与恢复")}>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 class="text-sm">{tr("备份与恢复")}</h2>
+          <p class="mt-1 text-xs text-ink/45">{tr("每个储存分别备份；未变化的原件会在后续快照中复用。")}</p></div>
+        <button class="btn btn-ghost btn-sm rounded-full" disabled={!desktop || backupBusy} onclick={browseBackups}>
+          <RotateCcw size={14}/>{tr("打开备份目录…")}</button>
+      </div>
+      {#if backupRepo}<p class="mt-3 break-all text-[11px] text-ink/40">{backupRepo}</p>{/if}
+      {#if backupError}<p class="mt-3 text-xs text-error" role="alert">{message(backupError)}</p>{/if}
+      {#if snapshots.length && !plan}<div class="mt-3 max-h-44 space-y-2 overflow-auto">
+        {#each snapshots as snapshot}<div class="flex items-center gap-3 rounded-xl bg-surface/30 px-3 py-2 text-xs">
+          <span class="min-w-0 flex-1 truncate">{snapshot.locationName} · {new Date(snapshot.createdAt).toLocaleString(language.current)}</span>
+          <span class="shrink-0 text-ink/45">{snapshot.fileCount} · {readable(snapshot.byteCount)}</span>
+          <button class="btn btn-ghost btn-xs" disabled={backupBusy} onclick={() => inspectRestore(snapshot)}>{tr("预览恢复")}</button>
+        </div>{/each}
+      </div>{/if}
+      {#if plan}<div class="mt-4 rounded-xl bg-surface/35 p-4 text-xs">
+        <h3 class="font-medium">{tr("恢复前检查文件冲突")}</h3>
+        <p class="mt-1 text-ink/55">{plan.snapshot.locationName} · {tr("缺失 {0}，冲突 {1}，相同 {2}", [plan.missing, plan.conflicts.length, plan.unchanged])}</p>
+        <p class="mt-1 break-all text-ink/45">{plan.targetPath}</p>
+        {#if plan.conflicts.length}<div class="mt-3 max-h-56 space-y-1 overflow-auto rounded-xl bg-surface/40 p-2" role="list" aria-label={tr("冲突文件列表")}>
+          {#each plan.conflicts as conflict}<div class="border-b border-ink/5 p-2 last:border-0" role="listitem">
+            <p class="break-all font-medium">{conflict.path}</p>
+            <p class="mt-1 text-ink/50">{tr("备份")}: {when(conflict.backupModifiedMs)} · {readable(conflict.backupBytes)}<br/>{tr("当前")}: {when(conflict.currentModifiedMs)} · {readable(conflict.currentBytes)}</p>
+            <p class="mt-1 text-ink/55">{conflict.backupNewer ? tr("备份较新") : tr("当前文件较新或时间相同")}</p>
+          </div>{/each}
+        </div>{/if}
+        <p class="mt-3 leading-5 text-ink/60">{tr("缺失文件会恢复。选择“恢复较新内容”时，只覆盖备份时间更晚的冲突文件；选择“跳过冲突”时，所有冲突文件保持原样。")}</p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button class="btn glass-dark btn-sm rounded-full text-white" disabled={backupBusy} onclick={() => restore("newer")}>{tr("恢复较新内容")}</button>
+          <button class="btn btn-ghost btn-sm rounded-full" disabled={backupBusy} onclick={() => restore("skip")}>{tr("跳过冲突")}</button>
+          <button class="btn btn-ghost btn-sm rounded-full" disabled={backupBusy} onclick={() => (plan = null)}>{tr("取消本次导入")}</button>
+        </div>
+      </div>{/if}
+    </section>
     {#if !desktop}<p class="rounded-xl bg-surface/30 p-4 text-xs">
         {tr("浏览器为交互示例；文件夹设置请使用桌面版。")}
       </p>{/if}
