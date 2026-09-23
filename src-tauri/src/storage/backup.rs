@@ -5,12 +5,12 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
-    io::Read,
+    io::{Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
     time::UNIX_EPOCH,
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BackupFile {
     scope: String,
@@ -21,7 +21,7 @@ struct BackupFile {
     modified_ms: u128,
     hash: String,
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Manifest {
     format: u32,
@@ -32,6 +32,17 @@ struct Manifest {
     created_at: String,
     database_hash: String,
     files: Vec<BackupFile>,
+    #[serde(default)]
+    parent: Option<BackupParent>,
+    #[serde(default)]
+    stored_hashes: Vec<String>,
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupParent {
+    id: String,
+    file_name: String,
+    archive_hash: String,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,13 +53,13 @@ pub struct BackupSnapshot {
     pub created_at: String,
     pub file_count: usize,
     pub byte_count: u64,
+    pub incremental: bool,
+    pub parent_name: Option<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupResult {
     pub snapshot: BackupSnapshot,
-    pub copied: usize,
-    pub reused: usize,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,16 +121,28 @@ fn blob_path(repo: &Path, hash: &str) -> Result<PathBuf> {
     );
     Ok(repo.join("blobs").join(&hash[..2]).join(hash))
 }
-fn store_blob(repo: &Path, source: &Path) -> Result<(String, bool)> {
-    let hash = digest(source)?;
-    let dest = blob_path(repo, &hash)?;
+fn needed_hashes(m: &Manifest) -> HashSet<String> {
+    let mut hashes = HashSet::new();
+    hashes.insert(m.database_hash.clone());
+    hashes.extend(m.files.iter().map(|f| f.hash.clone()));
+    hashes
+}
+fn contained_hashes(m: &Manifest) -> HashSet<String> {
+    if m.format == 1 {
+        needed_hashes(m)
+    } else {
+        m.stored_hashes.iter().cloned().collect()
+    }
+}
+fn store_blob(repo: &Path, source: &Path, hash: &str) -> Result<()> {
+    let dest = blob_path(repo, hash)?;
     if dest.exists() {
         ensure!(
             digest(&dest)? == hash,
             "备份仓库已有数据损坏：{}",
             dest.display()
         );
-        return Ok((hash, false));
+        return Ok(());
     }
     fs::create_dir_all(dest.parent().unwrap())?;
     let part = dest.with_extension(format!("{}.part", id()));
@@ -136,7 +159,7 @@ fn store_blob(repo: &Path, source: &Path) -> Result<(String, bool)> {
         let _ = fs::remove_file(&part);
     }
     result?;
-    Ok((hash, true))
+    Ok(())
 }
 fn safe_relative(text: &str) -> Result<&Path> {
     let path = Path::new(text);
@@ -165,6 +188,8 @@ fn snapshot_of(m: &Manifest) -> BackupSnapshot {
         created_at: m.created_at.clone(),
         file_count: m.files.len(),
         byte_count: m.files.iter().map(|f| f.bytes).sum(),
+        incremental: m.parent.is_some(),
+        parent_name: m.parent.as_ref().map(|p| p.file_name.clone()),
     }
 }
 fn manifest_path(repo: &Path, snapshot: &str) -> Result<PathBuf> {
@@ -177,9 +202,127 @@ fn manifest_path(repo: &Path, snapshot: &str) -> Result<PathBuf> {
     );
     Ok(repo.join("snapshots").join(format!("{snapshot}.json")))
 }
+fn read_archive_manifest(archive_path: &Path) -> Result<Manifest> {
+    let mut archive = tar::Archive::new(archive_reader(archive_path)?);
+    let mut entries = archive.entries()?;
+    let mut first = entries.next().context("备份压缩包为空")??;
+    ensure!(
+        first.path()?.as_ref() == Path::new("manifest.json")
+            && first.header().entry_type().is_file(),
+        "备份压缩包清单无效"
+    );
+    ensure!(first.size() <= 32 * 1024 * 1024, "备份压缩包清单过大");
+    Ok(serde_json::from_reader(&mut first)?)
+}
+fn archive_reader(path: &Path) -> Result<Box<dyn Read>> {
+    let mut file = File::open(path)?;
+    let mut magic = [0u8; 4];
+    file.read_exact(&mut magic)?;
+    file.seek(SeekFrom::Start(0))?;
+    match magic {
+        [0x04, 0x22, 0x4d, 0x18] => Ok(Box::new(lz4_flex::frame::FrameDecoder::new(file))),
+        _ => bail!("不支持的备份压缩格式"),
+    }
+}
+fn extract_chain(
+    chain: &[(PathBuf, Manifest)],
+    repo: &Path,
+    progress: &mut impl FnMut(usize, usize, &str),
+) -> Result<()> {
+    let needed = needed_hashes(&chain.last().unwrap().1);
+    let total: usize = chain.iter().map(|(_, m)| contained_hashes(m).len()).sum();
+    let mut done = 0;
+    for (archive_path, manifest) in chain {
+        let expected = contained_hashes(manifest);
+        let mut archive = tar::Archive::new(archive_reader(archive_path)?);
+        let mut seen = HashSet::new();
+        let mut manifest_seen = false;
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            ensure!(
+                entry.header().entry_type().is_file(),
+                "备份压缩包包含无效条目"
+            );
+            let path = entry.path()?.into_owned();
+            if path == Path::new("manifest.json") {
+                ensure!(
+                    !manifest_seen && entry.size() <= 32 * 1024 * 1024,
+                    "备份压缩包清单重复或过大"
+                );
+                let dest = manifest_path(repo, &manifest.id)?;
+                fs::create_dir_all(dest.parent().unwrap())?;
+                let mut output = File::create(&dest)?;
+                std::io::copy(&mut entry, &mut output)?;
+                output.sync_all()?;
+                manifest_seen = true;
+                continue;
+            }
+            let name = path.to_str().context("备份压缩包文件名无效")?;
+            let mut parts = name.split('/');
+            let (Some("blobs"), Some(prefix), Some(hash), None) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
+            else {
+                bail!("备份压缩包包含未知文件：{name}");
+            };
+            ensure!(
+                expected.contains(hash) && prefix == &hash[..2] && seen.insert(hash.to_string()),
+                "备份压缩包包含未知或重复数据"
+            );
+            let dest = blob_path(repo, hash)?;
+            let keep = needed.contains(hash) && !dest.exists();
+            let mut output = if keep {
+                fs::create_dir_all(dest.parent().unwrap())?;
+                Some(File::create(&dest)?)
+            } else {
+                None
+            };
+            let mut hasher = Sha256::new();
+            let mut buffer = [0u8; 1024 * 1024];
+            loop {
+                let n = entry.read(&mut buffer)?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..n]);
+                if let Some(file) = &mut output {
+                    std::io::Write::write_all(file, &buffer[..n])?;
+                }
+            }
+            ensure!(
+                format!("{:x}", hasher.finalize()) == hash,
+                "备份文件校验失败：{name}"
+            );
+            if let Some(file) = output {
+                file.sync_all()?;
+            }
+            done += 1;
+            progress(done, total, name);
+        }
+        ensure!(manifest_seen && seen == expected, "备份压缩包数据缺失");
+        ensure!(
+            &load_manifest(repo, &manifest.id)? == manifest,
+            "备份压缩包清单不一致"
+        );
+    }
+    ensure!(
+        needed
+            .iter()
+            .all(|hash| blob_path(repo, hash).is_ok_and(|p| p.is_file())),
+        "增量备份链缺少数据"
+    );
+    Ok(())
+}
 fn load_manifest(repo: &Path, snapshot: &str) -> Result<Manifest> {
-    let m: Manifest = serde_json::from_reader(File::open(manifest_path(repo, snapshot)?)?)?;
-    ensure!(m.format == 1 && m.id == snapshot, "不支持的备份格式");
+    let m: Manifest = if repo.is_file() {
+        read_archive_manifest(repo)?
+    } else {
+        serde_json::from_reader(File::open(manifest_path(repo, snapshot)?)?)?
+    };
+    ensure!(
+        (m.format == 1 || m.format == 2) && m.id == snapshot,
+        "不支持的备份格式"
+    );
+    manifest_path(Path::new("."), &m.id)?;
     blob_path(repo, &m.database_hash)?;
     for f in &m.files {
         safe_relative(&f.path)?;
@@ -189,7 +332,85 @@ fn load_manifest(repo: &Path, snapshot: &str) -> Result<Manifest> {
             "备份文件范围无效"
         );
     }
+    if m.format == 1 {
+        ensure!(
+            m.parent.is_none() && m.stored_hashes.is_empty(),
+            "旧版备份清单无效"
+        );
+    } else {
+        let needed = needed_hashes(&m);
+        let stored = contained_hashes(&m);
+        ensure!(
+            stored.len() == m.stored_hashes.len() && stored.contains(&m.database_hash),
+            "备份数据清单无效"
+        );
+        for hash in &stored {
+            blob_path(repo, hash)?;
+            ensure!(needed.contains(hash), "备份数据清单无效");
+        }
+        if let Some(parent) = &m.parent {
+            manifest_path(Path::new("."), &parent.id)?;
+            blob_path(repo, &parent.archive_hash)?;
+            let file = Path::new(&parent.file_name);
+            ensure!(
+                file.components().count() == 1
+                    && matches!(file.components().next(), Some(Component::Normal(_)))
+                    && parent.id != m.id,
+                "增量备份依赖无效"
+            );
+        } else {
+            ensure!(stored == needed, "完整备份缺少数据");
+        }
+    }
     Ok(m)
+}
+fn load_chain(archive_path: &Path) -> Result<Vec<(PathBuf, Manifest)>> {
+    let mut chain = vec![];
+    let mut current = archive_path.to_path_buf();
+    let mut seen = HashSet::new();
+    loop {
+        ensure!(chain.len() < 64, "增量备份链过长");
+        let canonical = fs::canonicalize(&current).context("找不到增量备份依赖")?;
+        ensure!(seen.insert(canonical.clone()), "增量备份链形成循环");
+        let raw = read_archive_manifest(&canonical)?;
+        let manifest = load_manifest(&canonical, &raw.id)?;
+        ensure!(manifest.format == 2, "不支持的备份格式");
+        let parent = manifest.parent.clone();
+        chain.push((canonical.clone(), manifest));
+        let Some(parent) = parent else {
+            break;
+        };
+        let path = canonical
+            .parent()
+            .context("备份压缩包位置无效")?
+            .join(&parent.file_name);
+        ensure!(path.is_file(), "缺少增量备份依赖：{}", parent.file_name);
+        ensure!(
+            digest(&path)? == parent.archive_hash,
+            "增量备份依赖已改变：{}",
+            parent.file_name
+        );
+        current = path;
+    }
+    chain.reverse();
+    let location = &chain.last().unwrap().1.location_id;
+    for pair in chain.windows(2) {
+        let parent = &pair[0].1;
+        let child = &pair[1].1;
+        ensure!(
+            child.parent.as_ref().is_some_and(|p| p.id == parent.id)
+                && child.location_id == *location
+                && parent.location_id == *location,
+            "增量备份链不匹配"
+        );
+    }
+    let supplied: HashSet<_> = chain
+        .iter()
+        .flat_map(|(_, m)| contained_hashes(m))
+        .collect();
+    let needed = needed_hashes(&chain.last().unwrap().1);
+    ensure!(needed.is_subset(&supplied), "增量备份链缺少数据");
+    Ok(chain)
 }
 fn walk_files(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     if !dir.exists() {
@@ -211,30 +432,125 @@ fn walk_files(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
 }
 impl Store {
     pub fn backup_list(&self, repo: &Path) -> Result<Vec<BackupSnapshot>> {
-        let dir = repo.join("snapshots");
-        if !dir.is_dir() {
-            return Ok(vec![]);
+        ensure!(repo.is_file(), "请选择备份压缩包");
+        let chain = load_chain(repo)?;
+        Ok(vec![snapshot_of(&chain.last().unwrap().1)])
+    }
+    pub fn backup_archive(
+        &mut self,
+        location_id: &str,
+        output: &Path,
+        base_archive: Option<&Path>,
+        mut progress: impl FnMut(usize, usize, &str),
+    ) -> Result<BackupResult> {
+        let parent = fs::canonicalize(output.parent().context("请选择备份压缩包位置")?)?;
+        let locations = self.locations()?;
+        ensure!(
+            locations.iter().any(|l| l.id == location_id && l.online),
+            "目录离线，无法备份"
+        );
+        // A backup must never get picked up as an original on a later scan.
+        ensure!(
+            !parent.starts_with(&self.root)
+                && locations.iter().all(|l| {
+                    let path = Path::new(&l.path);
+                    !parent.starts_with(path)
+                }),
+            "备份压缩包不能位于图库或原件目录中"
+        );
+        ensure!(output.file_name().is_some(), "请选择备份压缩包文件名");
+        ensure!(!output.exists(), "备份压缩包已存在，请选择其他文件名");
+        let base = if let Some(path) = base_archive {
+            let chain = load_chain(path)?;
+            let (base_path, base_manifest) = chain.last().unwrap();
+            ensure!(
+                base_path.parent() == Some(parent.as_path()),
+                "增量备份须与依赖压缩包保存在同一文件夹"
+            );
+            ensure!(
+                base_manifest.location_id == location_id,
+                "请选择同一个储存的备份作为增量基础"
+            );
+            Some((base_path.clone(), base_manifest.clone(), digest(base_path)?))
+        } else {
+            None
+        };
+        let workspace = tempfile::Builder::new()
+            .prefix(".cheki-export-")
+            .tempdir_in(&parent)?;
+        let repo = workspace.path().join("repository");
+        let base_hashes = base
+            .as_ref()
+            .map(|(_, m, _)| needed_hashes(m))
+            .unwrap_or_default();
+        let mut result =
+            self.stage_backup_repository(location_id, &repo, &base_hashes, |done, total, file| {
+                progress(done, total.saturating_mul(2).max(1), file)
+            })?;
+        let mut manifest = load_manifest(&repo, &result.snapshot.id)?;
+        let mut stored = needed_hashes(&manifest);
+        if let Some((path, previous, base_hash)) = &base {
+            let previous_hashes = needed_hashes(previous);
+            stored.retain(|hash| !previous_hashes.contains(hash));
+            stored.insert(manifest.database_hash.clone());
+            manifest.parent = Some(BackupParent {
+                id: previous.id.clone(),
+                file_name: path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .context("备份压缩包文件名无效")?
+                    .to_string(),
+                archive_hash: base_hash.clone(),
+            });
         }
-        let mut result = vec![];
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            if entry.path().extension().is_some_and(|e| e == "json") {
-                let id = entry
-                    .path()
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                result.push(snapshot_of(&load_manifest(repo, &id)?));
+        manifest.format = 2;
+        manifest.stored_hashes = stored.into_iter().collect();
+        manifest.stored_hashes.sort();
+        result.snapshot = snapshot_of(&manifest);
+        serde_json::to_writer(
+            File::create(manifest_path(&repo, &manifest.id)?)?,
+            &manifest,
+        )?;
+        let part = parent.join(format!(".cheki-export-{}.part", id()));
+        let write_result = (|| -> Result<()> {
+            let file = File::create(&part)?;
+            let encoder = lz4_flex::frame::FrameEncoder::new(file);
+            let mut tar = tar::Builder::new(encoder);
+            tar.append_file(
+                "manifest.json",
+                &mut File::open(manifest_path(&repo, &manifest.id)?)?,
+            )?;
+            for (i, hash) in manifest.stored_hashes.iter().enumerate() {
+                let path = blob_path(&repo, hash)?;
+                tar.append_file(
+                    format!("blobs/{}/{}", &hash[..2], hash),
+                    &mut File::open(path)?,
+                )?;
+                progress(
+                    manifest.files.len() + i + 1,
+                    manifest.files.len() + manifest.stored_hashes.len(),
+                    hash,
+                );
             }
+            let encoder = tar.into_inner()?;
+            encoder.finish()?.sync_all()?;
+            if let Some((path, _, hash)) = &base {
+                ensure!(digest(path)? == *hash, "增量备份依赖已改变");
+            }
+            fs::rename(&part, output)?;
+            Ok(())
+        })();
+        if write_result.is_err() {
+            let _ = fs::remove_file(&part);
         }
-        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        write_result?;
         Ok(result)
     }
-    pub fn backup_location(
+    fn stage_backup_repository(
         &mut self,
         location_id: &str,
         repo: &Path,
+        skip_hashes: &HashSet<String>,
         mut progress: impl FnMut(usize, usize, &str),
     ) -> Result<BackupResult> {
         let location = self
@@ -290,20 +606,16 @@ impl Store {
         input.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
         input.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
         let mut files = Vec::with_capacity(input.len());
-        let (mut copied, mut reused) = (0, 0);
         for (i, (scope, rel, root)) in input.iter().enumerate() {
             let path = safe_target(root, &rel.to_string_lossy())?;
             ensure!(path.is_file(), "备份源文件不可用：{}", path.display());
             let meta = fs::metadata(&path)?;
             let key = (scope.clone(), rel.to_string_lossy().to_string());
             let before = modified(&path)?;
-            // Hash each source even when size and mtime match: external edits can
-            // preserve both timestamps, while blob reuse remains incremental.
-            let (hash, new) = store_blob(&repo, &path)?;
-            if new {
-                copied += 1;
-            } else {
-                reused += 1;
+            // Hash every source: timestamp and size alone cannot establish identity.
+            let hash = digest(&path)?;
+            if !skip_hashes.contains(&hash) {
+                store_blob(&repo, &path, &hash)?;
             }
             ensure!(
                 fs::metadata(&path)?.len() == meta.len() && modified(&path)? == before,
@@ -342,12 +654,8 @@ impl Store {
             let _ = fs::remove_file(&db_part);
             return Err(e.into());
         }
-        let (database_hash, new) = store_blob(&repo, &db_part)?;
-        if new {
-            copied += 1;
-        } else {
-            reused += 1;
-        }
+        let database_hash = digest(&db_part)?;
+        store_blob(&repo, &db_part, &database_hash)?;
         fs::remove_file(db_part)?;
         fs::create_dir_all(repo.join("snapshots"))?;
         let manifest = Manifest {
@@ -359,6 +667,8 @@ impl Store {
             created_at: chrono::Utc::now().to_rfc3339(),
             database_hash,
             files,
+            parent: None,
+            stored_hashes: vec![],
         };
         let path = manifest_path(&repo, &manifest.id)?;
         let part = path.with_extension("part");
@@ -368,8 +678,6 @@ impl Store {
         fs::rename(part, path)?;
         Ok(BackupResult {
             snapshot: snapshot_of(&manifest),
-            copied,
-            reused,
         })
     }
 }
@@ -383,21 +691,22 @@ mod tests {
             .unwrap();
     }
     #[test]
-    fn incremental_backup_and_conflict_choices() {
+    fn archive_backup_and_conflict_choices() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("library");
-        let repo = tmp.path().join("backup");
+        let repo = tmp.path().join("backup.tar.lz4");
         let input = tmp.path().join("photo.png");
         picture(&input, [230, 120, 30]);
         let mut s = Store::open(root).unwrap();
         let original = s.import(vec![input], None).unwrap().library.chekis[0].assets[0]
             .original_path
             .clone();
-        let first = s.backup_location("local", &repo, |_, _, _| {}).unwrap();
-        let second = s.backup_location("local", &repo, |_, _, _| {}).unwrap();
-        assert_eq!(first.snapshot.file_count, second.snapshot.file_count);
-        assert_eq!(second.copied, 0);
-        assert!(second.reused > 0);
+        let first = s
+            .backup_archive("local", &repo, None, |_, _, _| {})
+            .unwrap();
+        assert!(repo.is_file());
+        assert_eq!(s.backup_list(&repo).unwrap().len(), 1);
+        assert!(s.backup_list(tmp.path()).is_err());
         picture(Path::new(&original), [20, 170, 240]);
         let plan = s.restore_plan(&repo, &first.snapshot.id, None).unwrap();
         assert_eq!(plan.conflicts.len(), 1);
@@ -433,17 +742,8 @@ mod tests {
             image::open(&original).unwrap().to_rgb8().get_pixel(0, 0).0,
             [20, 170, 240]
         );
-        // The backup's mtime is deliberately made later than the current file's mtime.
-        let manifest_path = manifest_path(&repo, &first.snapshot.id).unwrap();
-        let mut manifest: Manifest =
-            serde_json::from_reader(File::open(&manifest_path).unwrap()).unwrap();
-        manifest
-            .files
-            .iter_mut()
-            .find(|f| f.role.as_deref() == Some("original"))
-            .unwrap()
-            .modified_ms = modified(Path::new(&original)).unwrap() + 60_000;
-        serde_json::to_writer(File::create(&manifest_path).unwrap(), &manifest).unwrap();
+        // Make the conflicting current file older than the archived original.
+        filetime::set_file_mtime(&original, filetime::FileTime::from_unix_time(1, 0)).unwrap();
         let plan = s.restore_plan(&repo, &first.snapshot.id, None).unwrap();
         let restored = s
             .restore_backup(
@@ -466,11 +766,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let input = tmp.path().join("photo.png");
         picture(&input, [101, 121, 141]);
-        let repo = tmp.path().join("backup");
+        let repo = tmp.path().join("backup.tar.lz4");
         let mut source = Store::open(tmp.path().join("source")).unwrap();
         source.import(vec![input], None).unwrap();
         let snap = source
-            .backup_location("local", &repo, |_, _, _| {})
+            .backup_archive("local", &repo, None, |_, _, _| {})
             .unwrap()
             .snapshot;
         let mut dest = Store::open(tmp.path().join("dest")).unwrap();
@@ -491,13 +791,144 @@ mod tests {
         assert!(Path::new(&result.library.chekis[0].assets[0].original_path).is_file());
     }
     #[test]
+    fn damaged_archive_never_changes_current_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let input = tmp.path().join("photo.png");
+        picture(&input, [100, 110, 120]);
+        let archive = tmp.path().join("backup.tar.lz4");
+        let mut store = Store::open(tmp.path().join("library")).unwrap();
+        let original = store.import(vec![input], None).unwrap().library.chekis[0].assets[0]
+            .original_path
+            .clone();
+        let snapshot = store
+            .backup_archive("local", &archive, None, |_, _, _| {})
+            .unwrap()
+            .snapshot;
+        picture(Path::new(&original), [5, 15, 25]);
+        filetime::set_file_mtime(&original, filetime::FileTime::from_unix_time(1, 0)).unwrap();
+        let plan = store.restore_plan(&archive, &snapshot.id, None).unwrap();
+        let length = fs::metadata(&archive).unwrap().len();
+        File::options()
+            .write(true)
+            .open(&archive)
+            .unwrap()
+            .set_len(length / 2)
+            .unwrap();
+        assert!(store
+            .restore_backup(
+                &archive,
+                &snapshot.id,
+                None,
+                RestorePolicy::Newer,
+                &plan.token,
+                |_, _, _| {}
+            )
+            .is_err());
+        assert_eq!(
+            image::open(original).unwrap().to_rgb8().get_pixel(0, 0).0,
+            [5, 15, 25]
+        );
+    }
+    #[test]
+    fn incremental_chain_restores_and_detects_missing_parent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut source = Store::open(tmp.path().join("source")).unwrap();
+        let first_photo = tmp.path().join("first.png");
+        picture(&first_photo, [10, 20, 30]);
+        source.import(vec![first_photo], None).unwrap();
+        let full = tmp.path().join("full.tar.lz4");
+        source
+            .backup_archive("local", &full, None, |_, _, _| {})
+            .unwrap();
+        let second_photo = tmp.path().join("second.png");
+        picture(&second_photo, [40, 50, 60]);
+        source.import(vec![second_photo], None).unwrap();
+        let increment = tmp.path().join("increment.tar.lz4");
+        let snap = source
+            .backup_archive("local", &increment, Some(&full), |_, _, _| {})
+            .unwrap()
+            .snapshot;
+        let manifest = load_manifest(&increment, &snap.id).unwrap();
+        assert!(snap.incremental);
+        assert!(manifest.stored_hashes.len() < needed_hashes(&manifest).len());
+        let mut dest = Store::open(tmp.path().join("dest")).unwrap();
+        let plan = dest.restore_plan(&increment, &snap.id, None).unwrap();
+        let result = dest
+            .restore_backup(
+                &increment,
+                &snap.id,
+                None,
+                RestorePolicy::Skip,
+                &plan.token,
+                |_, _, _| {},
+            )
+            .unwrap();
+        assert_eq!(result.library.chekis.len(), 2);
+        let absent = tmp.path().join("moved-base.tar.lz4");
+        fs::rename(&full, &absent).unwrap();
+        assert!(dest.restore_plan(&increment, &snap.id, None).is_err());
+        fs::rename(&absent, &full).unwrap();
+        use std::io::Write;
+        File::options()
+            .append(true)
+            .open(&full)
+            .unwrap()
+            .write_all(b"changed")
+            .unwrap();
+        assert!(dest.restore_plan(&increment, &snap.id, None).is_err());
+    }
+    #[test]
+    fn multi_level_incremental_chain_restores() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut source = Store::open(tmp.path().join("source")).unwrap();
+        let first_photo = tmp.path().join("first.png");
+        picture(&first_photo, [1, 2, 3]);
+        source.import(vec![first_photo], None).unwrap();
+        let full = tmp.path().join("full.tar.lz4");
+        source
+            .backup_archive("local", &full, None, |_, _, _| {})
+            .unwrap();
+        let second_photo = tmp.path().join("second.png");
+        picture(&second_photo, [4, 5, 6]);
+        source.import(vec![second_photo], None).unwrap();
+        let first_increment = tmp.path().join("first-increment.tar.lz4");
+        source
+            .backup_archive("local", &first_increment, Some(&full), |_, _, _| {})
+            .unwrap();
+        let third_photo = tmp.path().join("third.png");
+        picture(&third_photo, [7, 8, 9]);
+        source.import(vec![third_photo], None).unwrap();
+        let new = tmp.path().join("second-increment.tar.lz4");
+        let snapshot = source
+            .backup_archive("local", &new, Some(&first_increment), |_, _, _| {})
+            .unwrap()
+            .snapshot;
+        let mut dest = Store::open(tmp.path().join("dest")).unwrap();
+        let plan = dest.restore_plan(&new, &snapshot.id, None).unwrap();
+        assert_eq!(
+            dest.restore_backup(
+                &new,
+                &snapshot.id,
+                None,
+                RestorePolicy::Skip,
+                &plan.token,
+                |_, _, _| {}
+            )
+            .unwrap()
+            .library
+            .chekis
+            .len(),
+            3
+        );
+    }
+    #[test]
     fn external_snapshot_restores_to_new_disk() {
         let tmp = tempfile::tempdir().unwrap();
         let source_disk = tmp.path().join("disk-a");
         fs::create_dir(&source_disk).unwrap();
         let input = source_disk.join("photo.png");
         picture(&input, [70, 80, 90]);
-        let repo = tmp.path().join("backup");
+        let repo = tmp.path().join("backup.tar.lz4");
         let mut source = Store::open(tmp.path().join("source")).unwrap();
         source.add_location(&source_disk, None).unwrap();
         source
@@ -516,7 +947,7 @@ mod tests {
             .find(|l| l.id != "local")
             .unwrap();
         let snap = source
-            .backup_location(&location.id, &repo, |_, _, _| {})
+            .backup_archive(&location.id, &repo, None, |_, _, _| {})
             .unwrap()
             .snapshot;
         let target = tmp.path().join("disk-b");
@@ -623,11 +1054,13 @@ impl Store {
             let unchanged = exists && current_hash.as_deref() == Some(f.hash.as_str());
             let conflict = exists && !unchanged;
             let backup_newer = conflict && f.modified_ms > current_modified_ms.unwrap_or(0);
-            ensure!(
-                blob_path(repo, &f.hash)?.is_file(),
-                "备份数据缺失：{}",
-                f.path
-            );
+            if repo.is_dir() {
+                ensure!(
+                    blob_path(repo, &f.hash)?.is_file(),
+                    "备份数据缺失：{}",
+                    f.path
+                );
+            }
             result.push(Candidate {
                 file: f.clone(),
                 dest,
@@ -646,16 +1079,28 @@ impl Store {
         snapshot: &str,
         target: Option<&Path>,
     ) -> Result<RestorePlan> {
+        ensure!(repo.is_file(), "请选择备份压缩包");
+        let chain = load_chain(repo)?;
+        ensure!(chain.last().unwrap().1.id == snapshot, "备份快照编号无效");
+        self.restore_plan_internal(repo, snapshot, target)
+    }
+    fn restore_plan_internal(
+        &self,
+        repo: &Path,
+        snapshot: &str,
+        target: Option<&Path>,
+    ) -> Result<RestorePlan> {
         let m = load_manifest(repo, snapshot)?;
-        ensure!(
-            blob_path(repo, &m.database_hash)?.is_file(),
-            "备份数据库缺失"
-        );
+        if repo.is_dir() {
+            ensure!(
+                blob_path(repo, &m.database_hash)?.is_file(),
+                "备份数据库缺失"
+            );
+        }
         let (external, candidates) = self.candidates(repo, &m, target)?;
-        ensure!(
-            !external.starts_with(repo) && !repo.starts_with(&external),
-            "恢复目标不能与备份目录重叠"
-        );
+        if repo.is_file() {
+            ensure!(!repo.starts_with(&external), "恢复目标不能与备份压缩包重叠");
+        }
         let target_path = external.to_string_lossy().into_owned();
         let state: Vec<_> = candidates
             .iter()
@@ -663,7 +1108,7 @@ impl Store {
             .collect();
         let token = format!(
             "{:x}",
-            Sha256::digest(serde_json::to_vec(&(&m.files, &state, &target_path))?)
+            Sha256::digest(serde_json::to_vec(&(&m, &state, &target_path))?)
         );
         let mut conflicts = vec![];
         let mut missing = 0;
@@ -747,9 +1192,37 @@ impl Store {
         expected_token: &str,
         mut progress: impl FnMut(usize, usize, &str),
     ) -> Result<RestoreResult> {
+        ensure!(repo.is_file(), "请选择备份压缩包");
         self.recover_restores()?;
         ensure!(
             self.restore_plan(repo, snapshot, target)?.token == expected_token,
+            "文件状态已变化，请重新预览恢复冲突"
+        );
+        let chain = load_chain(repo)?;
+        let workspace = tempfile::Builder::new()
+            .prefix(".cheki-restore-")
+            .tempdir_in(self.root.join("restores"))?;
+        extract_chain(&chain, workspace.path(), &mut progress)?;
+        self.restore_backup_repository(
+            workspace.path(),
+            snapshot,
+            target,
+            policy,
+            expected_token,
+            progress,
+        )
+    }
+    fn restore_backup_repository(
+        &mut self,
+        repo: &Path,
+        snapshot: &str,
+        target: Option<&Path>,
+        policy: RestorePolicy,
+        expected_token: &str,
+        mut progress: impl FnMut(usize, usize, &str),
+    ) -> Result<RestoreResult> {
+        ensure!(
+            self.restore_plan_internal(repo, snapshot, target)?.token == expected_token,
             "文件状态已变化，请重新预览恢复冲突"
         );
         let m = load_manifest(repo, snapshot)?;
@@ -758,10 +1231,6 @@ impl Store {
             "备份数据库校验失败"
         );
         let (external, candidates) = self.candidates(repo, &m, target)?;
-        ensure!(
-            !external.starts_with(repo) && !repo.starts_with(&external),
-            "恢复目标不能与备份目录重叠"
-        );
         let total = candidates.len();
         let selected: Vec<Candidate> = candidates
             .into_iter()

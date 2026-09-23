@@ -145,12 +145,13 @@
         />
       </div>
       <label class="block text-xs text-ink/55"
-        >{tr("基本备注")}<textarea
+        >{tr("人物简介")}<textarea
           class="textarea mt-2 w-full border-0 bg-surface/35 text-sm"
-          aria-label={tr("人物备注")}
+          aria-label={tr("人物简介")}
           bind:value={notes}
           rows="3"
-          disabled={busy}></textarea></label
+          disabled={busy}></textarea>
+        <span class="mt-1 block text-[11px] text-ink/40">{tr("可写入 [文字](https://example.com) 或直接粘贴网址")}</span></label
       >
       {#if person}<p class="text-[11px] text-ink/40">
           {tr("改名后旧名会加入别名；不会批量修改拍立得原件文件名。")}

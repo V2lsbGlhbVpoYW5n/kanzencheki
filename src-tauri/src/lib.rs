@@ -1,4 +1,5 @@
 mod detection;
+mod events;
 mod media;
 mod storage;
 use std::sync::{Arc, Mutex};
@@ -45,6 +46,10 @@ async fn cheki_batch_update(
     patch: BatchPatch,
 ) -> Result<Library, String> {
     work(state.inner().clone(), move |s| s.batch_update(&ids, patch)).await
+}
+#[tauri::command]
+async fn event_suggestions(date: String) -> Result<events::EventSuggestions, String> {
+    events::search(&date).await.map_err(|e| format!("{e:#}"))
 }
 #[tauri::command]
 async fn detection_confirm(state: State<'_, Backend>, id: String) -> Result<Library, String> {
@@ -224,19 +229,72 @@ async fn backup_choose_folder(app: tauri::AppHandle) -> Result<Option<String>, S
         .transpose()
 }
 #[tauri::command]
+async fn backup_choose_export(
+    app: tauri::AppHandle,
+    location_id: String,
+    base_archive: Option<String>,
+) -> Result<Option<String>, String> {
+    let name = format!(
+        "cheki-{}-{}.tar.lz4",
+        location_id,
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    );
+    let file = tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = app
+            .dialog()
+            .file()
+            .add_filter("Cheki archive", &["lz4"])
+            .set_file_name(name);
+        if let Some(parent) = base_archive
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).parent())
+        {
+            dialog = dialog.set_directory(parent);
+        }
+        dialog.blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    file.map(|p| {
+        p.into_path()
+            .map(|p| p.to_string_lossy().into_owned())
+            .map_err(|e| e.to_string())
+    })
+    .transpose()
+}
+#[tauri::command]
+async fn backup_open_archive(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let file = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Cheki archive", &["lz4"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    file.map(|p| {
+        p.into_path()
+            .map(|p| p.to_string_lossy().into_owned())
+            .map_err(|e| e.to_string())
+    })
+    .transpose()
+}
+#[tauri::command]
 async fn backup_create(
     app: tauri::AppHandle,
     state: State<'_, Backend>,
     location_id: String,
     repo: String,
+    base_archive: Option<String>,
     task_id: String,
 ) -> Result<BackupResult, String> {
     let emitter = app.clone();
     let task = task_id.clone();
     let result = work(state.inner().clone(), move |s| {
-        s.backup_location(
+        s.backup_archive(
             &location_id,
             std::path::Path::new(&repo),
+            base_archive.as_deref().map(std::path::Path::new),
             |done, total, file| {
                 progress(&emitter, &task, "备份储存", done, total, "running", file);
             },
@@ -251,7 +309,7 @@ async fn backup_create(
         1,
         if result.is_ok() { "done" } else { "error" },
         &match &result {
-            Ok(r) => format!("备份完成：新增 {} 份，复用 {} 份", r.copied, r.reused),
+            Ok(r) => format!("备份已导出：{} 份文件", r.snapshot.file_count),
             Err(e) => e.clone(),
         },
     );
@@ -642,6 +700,7 @@ async fn person_files_import(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let root = std::env::var_os("CHEKI_LIBRARY_DIR")
                 .map(std::path::PathBuf::from)
@@ -675,7 +734,10 @@ pub fn run() {
             library_clear_local,
             cheki_update,
             cheki_batch_update,
+            event_suggestions,
             backup_choose_folder,
+            backup_choose_export,
+            backup_open_archive,
             backup_create,
             backup_snapshots,
             backup_plan,

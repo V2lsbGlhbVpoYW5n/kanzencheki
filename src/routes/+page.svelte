@@ -12,6 +12,7 @@
   import ImportSheet from "$lib/ImportSheet.svelte";
   import AssetPanel from "$lib/AssetPanel.svelte";
   import BulkEditor from "$lib/BulkEditor.svelte";
+  import EventInput from "$lib/EventInput.svelte";
   import SelectMenu from "$lib/SelectMenu.svelte";
   import DatePicker from "$lib/DatePicker.svelte";
   import { notify } from "$lib/tasks.svelte";
@@ -1105,14 +1106,7 @@
                       }}
                     />{/if}
                 </div>
-                <label class="block text-[10px] text-ink/50"
-                  >{tr("活动")}<input
-                    aria-label={tr("活动")}
-                    class="input input-sm mt-1.5 w-full border-transparent bg-surface/25 text-xs shadow-[inset_0_1px_3px_#28301e12]"
-                    placeholder={tr("活动名称（可选）")}
-                    bind:value={draft.event}
-                  /></label
-                >
+                <EventInput date={draft.date} bind:value={draft.event} />
                 <div>
                   <p class="mb-1.5 text-[10px] text-ink/50">{tr("标签")}</p>
                   <TokenInput

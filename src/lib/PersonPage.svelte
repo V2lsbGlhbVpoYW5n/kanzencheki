@@ -57,6 +57,7 @@
   import PhotoImage from "./Photo.svelte";
   import FileCover from "./FileCover.svelte";
   import TaskCenter from "./TaskCenter.svelte";
+  import BioText from "./BioText.svelte";
   let { personId }: { personId: string } = $props();
   let person = $derived(librarySession.people.find((p) => p.id === personId));
   let chekis = $derived(
@@ -292,7 +293,7 @@
         {#if person.notes}<p
             class="mx-auto mt-5 max-w-xl whitespace-pre-wrap text-sm leading-7 text-ink/60"
           >
-            {person.notes}
+            <BioText text={person.notes} />
           </p>{/if}
         <div
           class="mx-auto mt-7 grid max-w-lg grid-cols-3 divide-x divide-ink/8 rounded-2xl bg-surface/30 py-4"

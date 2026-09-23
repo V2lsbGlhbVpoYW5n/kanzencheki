@@ -32,7 +32,7 @@
   let dialog: HTMLDialogElement;
   let working = $state(false);
   let removing = $state<string | null>(null);
-  type Snapshot = { id: string; locationId: string; locationName: string; createdAt: string; fileCount: number; byteCount: number };
+  type Snapshot = { id: string; locationId: string; locationName: string; createdAt: string; fileCount: number; byteCount: number; incremental: boolean; parentName: string | null };
   type Conflict = { path: string; backupBytes: number; currentBytes: number; backupModifiedMs: number; currentModifiedMs: number; backupNewer: boolean };
   type Plan = { snapshot: Snapshot; conflicts: Conflict[]; missing: number; unchanged: number; targetPath: string; token: string };
   let backupBusy = $state(false);
@@ -42,26 +42,28 @@
   let restoreTarget = $state<string | null>(null);
   let backupError = $state("");
   async function chooseFolder() { return await invoke<string | null>("backup_choose_folder"); }
+  async function chooseArchive() { return await invoke<string | null>("backup_open_archive"); }
   function readable(bytes: number) { return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`; }
   function when(ms: number) { return new Date(ms).toLocaleString(language.current); }
   function failTask(id: string, title: string, error: unknown) {
     updateTask({ id, title, detail: String(error), state: "error", done: 1, total: 1 });
   }
-  async function createBackup(id: string, changeFolder = false) {
+  async function createBackup(id: string, incremental = false) {
     if (backupBusy || librarySession.busy) return;
     backupError = "";
     try {
-      const remembered = localStorage.getItem(`cheki-backup-${id}`);
-      const folder = changeFolder ? await chooseFolder() : remembered || await chooseFolder();
-      if (!folder) return;
+      const baseArchive = incremental ? await chooseArchive() : null;
+      if (incremental && !baseArchive) return;
+      const archive = await invoke<string | null>("backup_choose_export", { locationId: id, baseArchive });
+      if (!archive) return;
       backupBusy = true;
       await watchTasks();
       const taskId = startTask(sourceMessage("备份储存"));
       try {
-        await invoke("backup_create", { locationId: id, repo: folder, taskId });
-        localStorage.setItem(`cheki-backup-${id}`, folder);
-        backupRepo = folder;
-        snapshots = await invoke<Snapshot[]>("backup_snapshots", { repo: folder });
+        await invoke("backup_create", { locationId: id, repo: archive, baseArchive, taskId });
+        backupRepo = archive;
+        plan = null;
+        snapshots = await invoke<Snapshot[]>("backup_snapshots", { repo: archive });
       } catch (e) { failTask(taskId, sourceMessage("备份储存"), e); throw e; }
     } catch (e) { backupError = String(e); }
     finally { backupBusy = false; }
@@ -70,12 +72,12 @@
     if (backupBusy) return;
     backupError = "";
     try {
-      const folder = await chooseFolder();
-      if (!folder) return;
+      const archive = await chooseArchive();
+      if (!archive) return;
       backupBusy = true;
-      backupRepo = folder;
+      backupRepo = archive;
       plan = null;
-      snapshots = await invoke<Snapshot[]>("backup_snapshots", { repo: folder });
+      snapshots = await invoke<Snapshot[]>("backup_snapshots", { repo: archive });
     } catch (e) { backupError = String(e); }
     finally { backupBusy = false; }
   }
@@ -293,9 +295,9 @@
         <p class="mt-2 break-all text-[11px] text-ink/40">{location.path}</p>
         <div class="mt-3 flex gap-2">
           <button class="btn btn-ghost btn-xs" disabled={!desktop || !location.online || backupBusy || working}
-            onclick={() => createBackup(location.id)}><Archive size={13}/>{tr("备份此目录")}</button>
+            onclick={() => createBackup(location.id)}><Archive size={13}/>{tr("完整备份…")}</button>
           <button class="btn btn-ghost btn-xs" disabled={!desktop || !location.online || backupBusy || working}
-            onclick={() => createBackup(location.id, true)}>{tr("选择新备份位置…")}</button>
+            onclick={() => createBackup(location.id, true)}>{tr("增量备份…")}</button>
         </div>
         {#if location.id !== "local"}<div class="mt-3 flex gap-2">
             <button
@@ -343,15 +345,18 @@
     <section class="mt-5 rounded-2xl bg-surface/25 p-4" aria-label={tr("备份与恢复")}>
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div><h2 class="text-sm">{tr("备份与恢复")}</h2>
-          <p class="mt-1 text-xs text-ink/45">{tr("每个储存分别备份；未变化的原件会在后续快照中复用。")}</p></div>
+          <p class="mt-1 text-xs text-ink/45">{tr("完整备份可单独恢复；增量备份只存变化内容，须与它依赖的压缩包放在同一文件夹。新备份使用 LZ4。")}</p></div>
         <button class="btn btn-ghost btn-sm rounded-full" disabled={!desktop || backupBusy} onclick={browseBackups}>
-          <RotateCcw size={14}/>{tr("打开备份目录…")}</button>
+          <RotateCcw size={14}/>{tr("打开备份压缩包…")}</button>
       </div>
       {#if backupRepo}<p class="mt-3 break-all text-[11px] text-ink/40">{backupRepo}</p>{/if}
       {#if backupError}<p class="mt-3 text-xs text-error" role="alert">{message(backupError)}</p>{/if}
       {#if snapshots.length && !plan}<div class="mt-3 max-h-44 space-y-2 overflow-auto">
         {#each snapshots as snapshot}<div class="flex items-center gap-3 rounded-xl bg-surface/30 px-3 py-2 text-xs">
-          <span class="min-w-0 flex-1 truncate">{snapshot.locationName} · {new Date(snapshot.createdAt).toLocaleString(language.current)}</span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate">{snapshot.locationName} · {new Date(snapshot.createdAt).toLocaleString(language.current)} · {snapshot.incremental ? tr("增量") : tr("完整")}</span>
+            {#if snapshot.parentName}<span class="block truncate text-[10px] text-ink/40" title={snapshot.parentName}>{tr("依赖 {0}", [snapshot.parentName])}</span>{/if}
+          </span>
           <span class="shrink-0 text-ink/45">{snapshot.fileCount} · {readable(snapshot.byteCount)}</span>
           <button class="btn btn-ghost btn-xs" disabled={backupBusy} onclick={() => inspectRestore(snapshot)}>{tr("预览恢复")}</button>
         </div>{/each}
