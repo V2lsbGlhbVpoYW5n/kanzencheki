@@ -49,6 +49,8 @@ devbox run dev
 
 macOS 安装包采用临时签名，尚未公证，首次打开时可能需要手动批准。Windows 安装程序尚未签名，可能触发 SmartScreen 提示。请从本项目的 GitHub Release 页面下载安装包。
 
+部分影像操作需要另外安装 ImageMagick 7，提取视频封面需要 FFmpeg；桌面安装包暂不包含这两个工具。
+
 ### 构建与验证
 
 ~~~sh

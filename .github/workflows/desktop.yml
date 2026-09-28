@@ -14,8 +14,8 @@ jobs:
   verify:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
@@ -26,7 +26,16 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils ffmpeg
+      - name: Install ImageMagick 7 for image tests
+        run: |
+          curl --fail --location --retry 3 --silent --show-error \
+            https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-31/ImageMagick-7.1.2-31-gcc-x86_64.AppImage \
+            --output "$RUNNER_TEMP/magick"
+          echo "b22dee096a68e7eb6771a6f98c16490ea78d399ffa27f34ca2ec4f02e707fd9c  $RUNNER_TEMP/magick" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/magick"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$RUNNER_TEMP/magick" -version
       - run: npm ci
       - name: Check release version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -45,6 +54,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
 
   package:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -65,8 +76,8 @@ jobs:
             args: --bundles dmg --target x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm

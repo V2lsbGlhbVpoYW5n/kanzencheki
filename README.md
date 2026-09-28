@@ -49,6 +49,8 @@ Version tags such as `v0.1.0` trigger GitHub Actions to publish a [GitHub pre-re
 
 The macOS packages use ad hoc signing without notarization, so macOS may require manual approval before opening them. The Windows installer is unsigned and may trigger a SmartScreen warning. Do not download release files from third-party mirrors.
 
+ImageMagick 7 is required for some image operations, and FFmpeg is required for video cover extraction. These tools are not included in the desktop packages.
+
 ### Build and verify
 
 ~~~sh
