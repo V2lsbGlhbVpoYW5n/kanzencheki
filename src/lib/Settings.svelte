@@ -34,7 +34,7 @@
   let removing = $state<string | null>(null);
   type Snapshot = { id: string; locationId: string; locationName: string; createdAt: string; fileCount: number; byteCount: number; incremental: boolean; parentName: string | null };
   type Conflict = { path: string; backupBytes: number; currentBytes: number; backupModifiedMs: number; currentModifiedMs: number; backupNewer: boolean };
-  type Plan = { snapshot: Snapshot; conflicts: Conflict[]; missing: number; unchanged: number; targetPath: string; token: string };
+  type Plan = { snapshot: Snapshot; conflicts: Conflict[]; missing: number; unchanged: number; unchangedFiles: string[]; targetPath: string; token: string };
   let backupBusy = $state(false);
   let backupRepo = $state("");
   let snapshots = $state<Snapshot[]>([]);
@@ -171,7 +171,7 @@
       confirmation = "";
       clearStep = 0;
       notify(
-        sourceMessage("本机仓库已清空，原件已移入系统回收站；外置影像保留"),
+        sourceMessage("本机照片与人物文件已移入系统回收站；外置影像保留"),
       );
     } catch {
     } finally {
@@ -365,6 +365,12 @@
         <h3 class="font-medium">{tr("恢复前检查文件冲突")}</h3>
         <p class="mt-1 text-ink/55">{plan.snapshot.locationName} · {tr("缺失 {0}，冲突 {1}，相同 {2}", [plan.missing, plan.conflicts.length, plan.unchanged])}</p>
         <p class="mt-1 break-all text-ink/45">{plan.targetPath}</p>
+        {#if plan.unchangedFiles.length}<details class="mt-3 rounded-xl bg-surface/35 p-2 text-ink/55">
+          <summary class="cursor-pointer">{tr("查看相同文件（{0}）", [plan.unchangedFiles.length])}</summary>
+          <div class="mt-2 max-h-36 space-y-1 overflow-auto text-[11px]">
+            {#each plan.unchangedFiles as path}<p class="break-all">{path}</p>{/each}
+          </div>
+        </details>{/if}
         {#if plan.conflicts.length}<div class="mt-3 max-h-56 space-y-1 overflow-auto rounded-xl bg-surface/40 p-2" role="list" aria-label={tr("冲突文件列表")}>
           {#each plan.conflicts as conflict}<div class="border-b border-ink/5 p-2 last:border-0" role="listitem">
             <p class="break-all font-medium">{conflict.path}</p>
@@ -411,7 +417,7 @@
       </h2>
       <p class="text-xs leading-6 text-danger-ink">
         {tr(
-          "将 {0} 份本机原件移入系统回收站，并删除对应影像和浏览缓存。没有其他影像的收藏也会移除。外置原件、收藏资料及其离线缓存保留。",
+          "将 {0} 份本机照片原件，以及人物附件和文章移入系统回收站，并删除对应记录和浏览缓存。人物条目与简介保留；外置原件及其离线缓存保留。",
           [localCount],
         )}
       </p>
@@ -436,8 +442,7 @@
         disabled={!desktop ||
           confirmation !== tr("清空本机仓库") ||
           working ||
-          librarySession.busy ||
-          !localCount}
+          librarySession.busy}
         onclick={clearLocal}
         >{working
           ? tr("正在清空…")

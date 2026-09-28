@@ -167,6 +167,7 @@ impl Store {
         if confirmation != "清空本机仓库" {
             bail!("请输入完整确认文字：清空本机仓库");
         }
+        self.recover_document_writes()?;
         let assets: Vec<Asset> = self
             .list()?
             .chekis
@@ -180,6 +181,16 @@ impl Store {
             .collect();
         self.erase_assets(&assets, true, |p| trash::delete(p).map_err(Into::into))?;
         self.remove_empty_chekis()?;
+        let people_dir = self.root.join("people");
+        if fs::read_dir(&people_dir)?.next().is_some() {
+            trash::delete(&people_dir).context("无法将人物附件和文章移入系统回收站")?;
+            fs::create_dir_all(&people_dir)?;
+        }
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM person_files", [])?;
+        tx.execute("DELETE FROM person_documents", [])?;
+        tx.execute("DELETE FROM document_writes", [])?;
+        tx.commit()?;
         self.list()
     }
     fn remove_empty_chekis(&self) -> Result<()> {
@@ -441,6 +452,28 @@ mod tests {
                 },
             )
             .unwrap();
+            let person = s
+                .save_person(PersonDraft {
+                    name: "测试人物".into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            let attachment = data.join("attachment.txt");
+            fs::write(&attachment, "attachment").unwrap();
+            s.import_person_file(&person.id, &attachment).unwrap();
+            s.save_document(DocumentDraft {
+                id: None,
+                person_id: person.id.clone(),
+                title: "article".into(),
+                body: "body".into(),
+                revision: None,
+            })
+            .unwrap();
+            let backup = data.join("before-clear.tar.lz4");
+            let snapshot = s
+                .backup_archive("local", &backup, None, |_, _, _| {})
+                .unwrap()
+                .snapshot;
             assert!(s.clear_local("wrong phrase").is_err());
             let before = s.list().unwrap().chekis.remove(0);
             let ext = before
@@ -455,6 +488,10 @@ mod tests {
             let extpath = ext.original_path.clone();
             let cache = ext.src.clone();
             s.clear_local("清空本机仓库").unwrap();
+            assert_eq!(s.person_space(&person.id).unwrap().files.len(), 0);
+            assert_eq!(s.person_space(&person.id).unwrap().documents.len(), 0);
+            assert!(s.people().unwrap().iter().any(|p| p.id == person.id));
+            assert_eq!(fs::read_dir(s.root.join("people")).unwrap().count(), 0);
             assert_eq!(s.list().unwrap().chekis[0].assets.len(), 1);
             assert!(Path::new(&extpath).is_file());
             assert!(Path::new(&cache).is_file());
@@ -463,8 +500,29 @@ mod tests {
             assert!(s.list().unwrap().chekis.is_empty());
             assert!(!Path::new(&extpath).exists());
             assert_eq!(fs::read_dir(s.root.join("previews")).unwrap().count(), 0);
-            assert_eq!(fs::read_dir(data.join("Trash/files")).unwrap().count(), 2);
-            assert_eq!(fs::read_dir(data.join("Trash/info")).unwrap().count(), 2);
+            assert_eq!(fs::read_dir(data.join("Trash/files")).unwrap().count(), 3);
+            assert_eq!(fs::read_dir(data.join("Trash/info")).unwrap().count(), 3);
+            let plan = s.restore_plan(&backup, &snapshot.id, None).unwrap();
+            assert_eq!(plan.unchanged, 0);
+            assert_eq!(plan.missing, snapshot.file_count);
+            let mut progress_labels = Vec::new();
+            let result = s
+                .restore_backup(
+                    &backup,
+                    &snapshot.id,
+                    None,
+                    super::backup::RestorePolicy::Skip,
+                    &plan.token,
+                    |_, _, label| progress_labels.push(label.to_string()),
+                )
+                .unwrap();
+            assert_eq!(result.restored, snapshot.file_count);
+            assert!(!progress_labels
+                .iter()
+                .any(|label| label == "正在生成浏览图…"));
+            assert_eq!(fs::read_dir(s.root.join("previews")).unwrap().count(), 2);
+            assert_eq!(s.person_space(&person.id).unwrap().files.len(), 1);
+            assert_eq!(s.person_space(&person.id).unwrap().documents.len(), 1);
             return;
         }
         let tmp = tempfile::tempdir().unwrap();

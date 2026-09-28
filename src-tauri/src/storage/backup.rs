@@ -78,6 +78,7 @@ pub struct RestorePlan {
     pub conflicts: Vec<BackupConflict>,
     pub missing: usize,
     pub unchanged: usize,
+    pub unchanged_files: Vec<String>,
     pub target_path: String,
     pub token: String,
 }
@@ -576,11 +577,24 @@ impl Store {
             .collect::<rusqlite::Result<_>>()?;
         let mut input: Vec<(String, PathBuf, PathBuf)> = vec![];
         if location_id == "local" {
-            for folder in ["originals", "previews", "people"] {
+            for folder in ["originals", "people"] {
                 let mut files = vec![];
                 walk_files(&self.root, &self.root.join(folder), &mut files)?;
                 for rel in files {
                     input.push(("local".into(), rel, self.root.clone()));
+                }
+            }
+            let local_assets: HashSet<&str> = linked
+                .iter()
+                .filter(|((loc, _), (_, role))| loc == "local" && role == "original")
+                .map(|(_, (asset, _))| asset.as_str())
+                .collect();
+            for ((loc, path), (asset, role)) in &linked {
+                if loc == "local"
+                    && (role == "base" || role == "display")
+                    && local_assets.contains(asset.as_str())
+                {
+                    input.push(("local".into(), PathBuf::from(path), self.root.clone()));
                 }
             }
         } else {
@@ -1113,9 +1127,11 @@ impl Store {
         let mut conflicts = vec![];
         let mut missing = 0;
         let mut unchanged = 0;
+        let mut unchanged_files = vec![];
         for c in candidates {
             if c.unchanged {
                 unchanged += 1;
+                unchanged_files.push(format!("{} / {}", c.file.scope, c.file.path));
             } else if c.conflict {
                 conflicts.push(BackupConflict {
                     path: format!("{} / {}", c.file.scope, c.file.path),
@@ -1134,6 +1150,7 @@ impl Store {
             conflicts,
             missing,
             unchanged,
+            unchanged_files,
             target_path,
             token,
         })
@@ -1232,6 +1249,26 @@ impl Store {
         );
         let (external, candidates) = self.candidates(repo, &m, target)?;
         let total = candidates.len();
+        let mut cache_roles: HashMap<String, HashSet<String>> = HashMap::new();
+        for c in &candidates {
+            if let (Some(asset), Some(role)) = (&c.file.asset, &c.file.role) {
+                if (role == "base" || role == "display")
+                    && (c.unchanged
+                        || !c.conflict
+                        || matches!(policy, RestorePolicy::Newer) && c.backup_newer)
+                {
+                    cache_roles
+                        .entry(asset.clone())
+                        .or_default()
+                        .insert(role.clone());
+                }
+            }
+        }
+        let cache_ready: HashSet<String> = cache_roles
+            .into_iter()
+            .filter(|(_, roles)| roles.contains("base") && roles.contains("display"))
+            .map(|(asset, _)| asset)
+            .collect();
         let selected: Vec<Candidate> = candidates
             .into_iter()
             .filter(|c| {
@@ -1294,6 +1331,7 @@ impl Store {
             id: run.clone(),
             ops,
         };
+        progress(total, total + 1, "正在整理图库…");
         let journalpath = self.root.join("restores").join(format!("{run}.json"));
         let journalpart = journalpath.with_extension("part");
         let mut record = File::create(&journalpart)?;
@@ -1314,7 +1352,10 @@ impl Store {
                 &blob_path(repo, &m.database_hash)?,
                 &external,
                 &selected,
+                &cache_ready,
                 &run,
+                total,
+                &mut progress,
             )?;
             Ok(())
         })();
@@ -1336,7 +1377,10 @@ impl Store {
         dbfile: &Path,
         external: &Path,
         selected: &[Candidate],
+        cache_ready: &HashSet<String>,
         run: &str,
+        progress_base: usize,
+        progress: &mut impl FnMut(usize, usize, &str),
     ) -> Result<()> {
         self.db.execute(
             "ATTACH DATABASE ?1 AS source",
@@ -1396,12 +1440,20 @@ impl Store {
         detach?;
         // A missing or stale cache is recreated from a restored source. A cache failure leaves
         // the original and catalog intact; the preview error is visible in the library.
-        for asset in selected
+        let regenerate: Vec<_> = selected
             .iter()
             .filter(|c| c.file.role.as_deref() == Some("original"))
             .filter_map(|c| c.file.asset.as_deref())
             .collect::<HashSet<_>>()
-        {
+            .into_iter()
+            .filter(|asset| !cache_ready.contains(*asset))
+            .collect();
+        for (i, asset) in regenerate.iter().enumerate() {
+            progress(
+                progress_base + i,
+                progress_base + regenerate.len() + 1,
+                "正在生成浏览图…",
+            );
             if let Err(e) = self.generate_cache(asset) {
                 self.db.execute(
                     "UPDATE assets SET preview_error=?2 WHERE id=?1",
