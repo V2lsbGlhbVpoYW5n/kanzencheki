@@ -6,7 +6,7 @@ A local-first desktop app for organizing cheki collections, their images, and th
 
 The name is a playful nod to the *kanzenseiiki* call.
 
-> **Project status:** Version 0.1.0 is the first version and is currently in review. Features and data handling are being checked before a general release. There are no published installers yet.
+> **Project status:** Version 0.1.0 is the first version and is currently in review. Features and data handling are being checked before a general release. Tagged pre-release packages are published through GitHub Actions.
 
 ## Features
 
@@ -42,6 +42,12 @@ The desktop development window starts a Vite server on port 1420. To inspect the
 devbox run npm run demo:images          # Download third-party demo images locally
 devbox run dev
 ~~~
+
+### Desktop packages
+
+Version tags such as `v0.1.0` trigger GitHub Actions to publish a [GitHub pre-release](https://github.com/V2lsbGlhbVpoYW5n/kanzencheki/releases) after all packages build successfully. The release contains a Windows x64 NSIS installer, macOS DMGs for Intel and Apple Silicon, and a Linux x64 AppImage. Pull requests and pushes to `main` run the frontend and Rust checks.
+
+The macOS packages use ad hoc signing without notarization, so macOS may require manual approval before opening them. The Windows installer is unsigned and may trigger a SmartScreen warning. Do not download release files from third-party mirrors.
 
 ### Build and verify
 
@@ -81,7 +87,7 @@ Supported image imports include JPEG, PNG, WebP, and TIFF. Some preview operatio
 
 ## Roadmap
 
-- [ ] CI/CD for checks, builds, and releases
+- [x] CI/CD for checks, builds, and releases
 - [ ] Mobile app
 - [ ] Local network synchronization
 - [ ] Statistics page

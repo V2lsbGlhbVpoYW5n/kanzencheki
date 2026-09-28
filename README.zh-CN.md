@@ -6,7 +6,7 @@ KanzenCheki 是一款本地优先的桌面软件，用来整理拍立得收藏�
 
 名字 neta 了 *完全聖域* コール。
 
-> **项目状态**：目前为 0.1.0 第一版的 review 阶段，正在检查功能与数据处理，尚未发布安装包。
+> **项目状态**：目前为 0.1.0 第一版的 review 阶段，正在检查功能与数据处理。预发布安装包通过 GitHub Actions 在版本标签上构建并发布。
 
 ## 功能
 
@@ -42,6 +42,12 @@ devbox run desktop
 devbox run npm run demo:images          # 在本机下载第三方示例图片
 devbox run dev
 ~~~
+
+### 桌面安装包
+
+推送 `v0.1.0` 等版本标签后，GitHub Actions 会在全部安装包构建成功时发布 [GitHub 预发布版本](https://github.com/V2lsbGlhbVpoYW5n/kanzencheki/releases)。其中包含 Windows x64 的 NSIS 安装程序、适用于 Intel 和 Apple Silicon 的 macOS DMG，以及 Linux x64 的 AppImage。Pull Request 和推送到 `main` 会运行前端与 Rust 检查。
+
+macOS 安装包采用临时签名，尚未公证，首次打开时可能需要手动批准。Windows 安装程序尚未签名，可能触发 SmartScreen 提示。请从本项目的 GitHub Release 页面下载安装包。
 
 ### 构建与验证
 
@@ -81,7 +87,7 @@ Linux 可执行文件位于 .cache/cargo-target/release/kanzencheki。目前构�
 
 ## Roadmap
 
-- [ ] CI/CD：自动检查、构建与发布
+- [x] CI/CD：自动检查、构建与发布
 - [ ] 移动端
 - [ ] 局域网同步
 - [ ] 统计页面

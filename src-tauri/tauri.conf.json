@@ -28,7 +28,7 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "resources": ["models/LICENSE-*", "models/mobile_facenet/*"]
   }
 }
