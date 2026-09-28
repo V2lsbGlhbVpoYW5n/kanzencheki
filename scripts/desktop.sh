@@ -13,6 +13,6 @@ fi
 
 case "${1:-dev}" in
   dev) exec "${cheki_graphics[@]}" npm run tauri dev ;;
-  release) exec "${cheki_graphics[@]}" "${CARGO_TARGET_DIR:-.cache/cargo-target}/release/cheki-gallery" ;;
+  release) exec "${cheki_graphics[@]}" "${CARGO_TARGET_DIR:-.cache/cargo-target}/release/kanzencheki" ;;
   *) echo 'Usage: desktop.sh [dev|release]' >&2; exit 2 ;;
 esac

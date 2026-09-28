@@ -1,4 +1,4 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 fn main() {
-    cheki_gallery_lib::run();
+    kanzencheki_lib::run();
 }

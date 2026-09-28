@@ -507,7 +507,7 @@
   }
 </script>
 
-<svelte:head><title>{tr("Cheki — 相册")}</title></svelte:head>
+<svelte:head><title>{tr("KanzenCheki — 相册")}</title></svelte:head>
 <svelte:window onkeydown={key} />
 <input
   class="hidden"
@@ -542,7 +542,7 @@
           class="btn btn-ghost btn-sm"
           onclick={() => {
             librarySession.error = "";
-            void loadLibrary();
+            void loadLibrary(true);
           }}>{tr("重试")}</button
         >
       </div>{/if}

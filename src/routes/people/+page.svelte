@@ -79,7 +79,7 @@
   });
 </script>
 
-<svelte:head><title>{tr("Cheki — 人物")}</title></svelte:head>
+<svelte:head><title>{tr("KanzenCheki — 人物")}</title></svelte:head>
 <main
   class="min-h-screen bg-canvas px-8 pb-40 pt-28 text-base-content"
   aria-label={tr("人物总览")}

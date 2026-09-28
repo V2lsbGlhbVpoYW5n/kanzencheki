@@ -34,6 +34,10 @@ pub struct ImportOptions {
     #[serde(default)]
     pub grouping: String,
 }
+pub struct ImportedFile {
+    pub cheki_id: String,
+    pub preview_error: Option<String>,
+}
 impl Store {
     pub(super) fn migrate(&mut self, version: i64) -> Result<()> {
         if version >= 2 {
@@ -232,7 +236,7 @@ impl Store {
         )?;
         self.list()
     }
-    pub fn import_file(&mut self, source: &Path, options: &ImportOptions) -> Result<()> {
+    pub fn import_file(&mut self, source: &Path, options: &ImportOptions) -> Result<ImportedFile> {
         if let Some(ref c) = options.cheki_id {
             self.exists(c)?;
         }
@@ -244,25 +248,29 @@ impl Store {
                 |r| r.get(0),
             )?;
             self.db.execute("UPDATE renditions SET width=(SELECT width FROM assets WHERE id=?1),height=(SELECT height FROM assets WHERE id=?1) WHERE asset_id=?1 AND role='original'",[&asset])?;
-            // Cache processing can fail independently; the original is already indexed.
-
-            let display: Option<String> = self
-                .db
-                .query_row(
+            // The original is committed. Cache failures must not turn this into a failed import.
+            let preview_result = (|| -> Result<()> {
+                let display: String = self.db.query_row(
                     "SELECT relative_path FROM renditions WHERE asset_id=?1 AND role='display'",
                     [&asset],
                     |r| r.get(0),
-                )
-                .optional()?;
-            if let Some(display) = display {
+                )?;
                 let base = format!("previews/{asset}-base-{}.jpg", id());
                 fs::copy(self.root.join(display), self.root.join(&base))?;
                 self.generated(&asset, "base", &base)?;
-                self.render_crop(&asset, None)?;
-            } else {
-                bail!("原件已入库，但浏览图生成失败");
+                self.render_crop(&asset, None)
+            })();
+            if let Err(e) = preview_result {
+                self.db.execute(
+                    "UPDATE assets SET preview_error=?2 WHERE id=?1",
+                    params![asset, format!("{e:#}")],
+                )?;
             }
-            return Ok(());
+            let (cheki_id, _) = self.latest_link()?;
+            return Ok(ImportedFile {
+                cheki_id,
+                preview_error: self.asset_preview_error(&asset)?,
+            });
         }
         let source = fs::canonicalize(source)?;
         let extension = source
@@ -332,8 +340,18 @@ impl Store {
             .context("收藏不存在")?
             .metadata;
         self.update(&cheki, metadata)?;
-        self.refresh_preview(&asset)?;
-        Ok(())
+        let _ = self.refresh_preview(&asset);
+        Ok(ImportedFile {
+            cheki_id: cheki,
+            preview_error: self.asset_preview_error(&asset)?,
+        })
+    }
+    pub fn asset_preview_error(&self, asset: &str) -> Result<Option<String>> {
+        Ok(self.db.query_row(
+            "SELECT preview_error FROM assets WHERE id=?1",
+            [asset],
+            |r| r.get(0),
+        )?)
     }
     pub fn latest_link(&self) -> Result<(String, String)> {
         Ok(self.db.query_row(
@@ -816,6 +834,47 @@ mod tests {
         fs::rename(tmp.path().join("unplugged"), &disk).unwrap();
         s.refresh_preview(&aid).unwrap();
         assert_eq!(fs::read(renamed).unwrap(), bytes);
+    }
+    #[test]
+    fn registered_reference_with_failed_preview_can_group_and_rebuild() {
+        let tmp = tempfile::tempdir().unwrap();
+        let disk = tmp.path().join("disk");
+        fs::create_dir(&disk).unwrap();
+        let first = photo(&disk, "first.png", 40, 60);
+        let second = photo(&disk, "second.png", 40, 60);
+        let mut s = Store::open(tmp.path().join("library")).unwrap();
+        s.add_location(&disk, None).unwrap();
+        fs::remove_dir(s.root.join("previews")).unwrap();
+        fs::write(s.root.join("previews"), b"blocked").unwrap();
+        let options = ImportOptions {
+            reference: true,
+            ..Default::default()
+        };
+        let registered = s.import_file(&first, &options).unwrap();
+        assert!(registered.preview_error.is_some());
+        assert_eq!(s.list().unwrap().chekis.len(), 1);
+        let asset_id = s.list().unwrap().chekis[0].assets[0].id.clone();
+        fs::remove_file(s.root.join("previews")).unwrap();
+        fs::create_dir(s.root.join("previews")).unwrap();
+        s.import_file(
+            &second,
+            &ImportOptions {
+                cheki_id: Some(registered.cheki_id.clone()),
+                reference: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(s.list().unwrap().chekis[0].assets.len(), 2);
+        s.refresh_preview(&asset_id).unwrap();
+        let restored = s.list().unwrap();
+        let asset = restored.chekis[0]
+            .assets
+            .iter()
+            .find(|a| a.id == asset_id)
+            .unwrap();
+        assert!(asset.preview_error.is_none());
+        assert!(Path::new(&asset.src).is_file());
     }
     #[test]
     fn same_relative_names_in_different_roots_and_repeat_scan_are_safe() {

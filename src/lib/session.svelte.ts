@@ -127,6 +127,7 @@ export async function importDesktop(
     const result = await invoke<{
       imported: number;
       errors: string[];
+      previewErrors: string[];
       library: Library;
     } | null>("import_photos", {
       options: { chekiId, ...options },
@@ -138,12 +139,9 @@ export async function importDesktop(
       receive(result.library);
       // A fast background result can arrive before the import response.
       await loadLibrary(true);
-      const failed = result.library.chekis
-        .flatMap((c) => c.assets)
-        .filter((a) => a.previewError);
-      if (failed.length)
+      if (result.previewErrors.length)
         notify(
-          sourceMessage("{0} 份影像的预览生成失败。", [failed.length]),
+          sourceMessage("{0} 份影像的预览生成失败。", [result.previewErrors.length]),
           "error",
         );
       return "";

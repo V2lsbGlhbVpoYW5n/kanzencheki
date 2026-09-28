@@ -132,6 +132,7 @@ async fn import_photos(
     let mut imported = 0;
     let mut detection_ids = Vec::new();
     let mut errors = vec![];
+    let mut preview_errors = vec![];
     for (i, path) in paths.into_iter().enumerate() {
         progress(
             &app,
@@ -147,14 +148,18 @@ async fn import_photos(
             reference: options.reference,
             grouping: options.grouping.clone(),
         };
-        match work(state.inner().clone(), move |s| {
-            s.import_file(&path, &opts)?;
-            s.latest_link()
-        })
-        .await
-        {
-            Ok((cheki, _asset)) => {
+        let filename = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        match work(state.inner().clone(), move |s| s.import_file(&path, &opts)).await {
+            Ok(file) => {
                 imported += 1;
+                if let Some(error) = file.preview_error {
+                    preview_errors.push(format!("{filename}：{error}"));
+                }
+                let cheki = file.cheki_id;
                 if !detection_ids.contains(&cheki) {
                     detection_ids.push(cheki.clone());
                 }
@@ -164,22 +169,32 @@ async fn import_photos(
                     }
                 }
             }
-            Err(e) => errors.push(e),
+            Err(e) => errors.push(format!("{filename}：{e}")),
         }
     }
+    let details: Vec<_> = preview_errors.iter().chain(errors.iter()).take(3).collect();
     progress(
         &app,
         &task_id,
         "导入影像",
         total,
         total,
-        if errors.is_empty() { "done" } else { "error" },
+        if errors.is_empty() && preview_errors.is_empty() {
+            "done"
+        } else {
+            "error"
+        },
         &format!(
-            "已导入 {imported} 份影像{}",
-            if errors.is_empty() {
+            "已登记 {imported} 份影像；{} 份预览失败；{} 份登记失败{}",
+            preview_errors.len(),
+            errors.len(),
+            if details.is_empty() {
                 String::new()
             } else {
-                format!("；{}", errors.join("；"))
+                format!(
+                    "；{}",
+                    details.into_iter().cloned().collect::<Vec<_>>().join("；")
+                )
             }
         ),
     );
@@ -193,6 +208,7 @@ async fn import_photos(
     Ok(Some(ImportReport {
         imported,
         errors,
+        preview_errors,
         library,
     }))
 }
@@ -235,7 +251,7 @@ async fn backup_choose_export(
     base_archive: Option<String>,
 ) -> Result<Option<String>, String> {
     let name = format!(
-        "cheki-{}-{}.tar.lz4",
+        "kanzencheki-{}-{}.tar.lz4",
         location_id,
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     );
@@ -243,7 +259,7 @@ async fn backup_choose_export(
         let mut dialog = app
             .dialog()
             .file()
-            .add_filter("Cheki archive", &["lz4"])
+            .add_filter("KanzenCheki archive", &["lz4"])
             .set_file_name(name);
         if let Some(parent) = base_archive
             .as_deref()
@@ -267,7 +283,7 @@ async fn backup_open_archive(app: tauri::AppHandle) -> Result<Option<String>, St
     let file = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .add_filter("Cheki archive", &["lz4"])
+            .add_filter("KanzenCheki archive", &["lz4"])
             .blocking_pick_file()
     })
     .await
@@ -414,6 +430,17 @@ async fn cheki_merge(
 #[tauri::command]
 async fn asset_rotate(state: State<'_, Backend>, asset_id: String) -> Result<Library, String> {
     work(state.inner().clone(), move |s| s.rotate(&asset_id)).await
+}
+#[tauri::command]
+async fn asset_refresh_preview(
+    state: State<'_, Backend>,
+    asset_id: String,
+) -> Result<Library, String> {
+    work(state.inner().clone(), move |s| {
+        s.refresh_preview(&asset_id)?;
+        s.list()
+    })
+    .await
 }
 #[tauri::command]
 async fn crop_preview(
@@ -750,11 +777,12 @@ pub fn run() {
             cheki_merge,
             asset_crop,
             asset_rotate,
+            asset_refresh_preview,
             crop_preview,
             asset_view,
             asset_view_release,
             crop_suggest,
         ])
         .run(tauri::generate_context!())
-        .expect("Could not start Cheki Gallery");
+        .expect("Could not start KanzenCheki");
 }

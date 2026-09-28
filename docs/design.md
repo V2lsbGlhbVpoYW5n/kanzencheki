@@ -1,5 +1,7 @@
 # Cheki Gallery · 第一版
 
+> **Deprecated / 已弃用：**这是一份历史设计 artifact，仅供追溯早期方案。内容可能与当前 KanzenCheki 实现不符；请以代码和 [README](../README.md) 为准。
+
 ## 界面
 
 以实体收藏品为中心的桌面相册。左侧收藏导航（全部、待整理、人物），中央可调密度的拍立得网格，右侧详情。米白底色、低饱和强调色，使用 daisyUI 组件和 Tailwind 布局，不做统计仪表盘。

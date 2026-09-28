@@ -101,6 +101,7 @@ pub struct Library {
 pub struct ImportReport {
     pub imported: usize,
     pub errors: Vec<String>,
+    pub preview_errors: Vec<String>,
     pub library: Library,
 }
 
@@ -545,8 +546,15 @@ impl Store {
             }
             edits.push((id.clone(), m));
         }
-        for (id, m) in edits {
-            self.update(&id, m)?;
+        let total = edits.len();
+        for (index, (id, m)) in edits.into_iter().enumerate() {
+            if let Err(e) = self.update(&id, m) {
+                bail!(
+                    "批量修改中断：前 {index} 张已完成；第 {} 张失败（可能已部分写入），其余 {} 张未处理：{e:#}",
+                    index + 1,
+                    total - index - 1
+                );
+            }
         }
         self.list()
     }
@@ -608,6 +616,7 @@ impl Store {
         Ok(ImportReport {
             imported,
             errors,
+            preview_errors: vec![],
             library: self.list()?,
         })
     }
@@ -836,6 +845,53 @@ mod tests {
             .chekis
             .iter()
             .all(|c| c.metadata.date == "2026-08-27"));
+    }
+    #[test]
+    fn batch_edit_reports_completed_items_when_later_write_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let one = picture(tmp.path(), "one.png");
+        let two = picture(tmp.path(), "two.png");
+        let mut store = Store::open(tmp.path().join("library")).unwrap();
+        let library = store.import(vec![one, two], None).unwrap().library;
+        let ids: Vec<_> = library.chekis.iter().map(|c| c.id.clone()).collect();
+        store.db.execute_batch(&format!(
+            "CREATE TEMP TRIGGER fail_second BEFORE UPDATE ON chekis WHEN NEW.id='{}' BEGIN SELECT RAISE(ABORT, 'forced second write failure'); END;",
+            ids[1]
+        )).unwrap();
+        let error = store
+            .batch_update(
+                &ids,
+                BatchPatch {
+                    event: Some("公演".into()),
+                    ..Default::default()
+                },
+            )
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("前 1 张已完成"), "{error}");
+        assert!(error.contains("其余 0 张未处理"), "{error}");
+        let result = store.list().unwrap();
+        assert_eq!(
+            result
+                .chekis
+                .iter()
+                .find(|c| c.id == ids[0])
+                .unwrap()
+                .metadata
+                .event,
+            "公演"
+        );
+        assert_eq!(
+            result
+                .chekis
+                .iter()
+                .find(|c| c.id == ids[1])
+                .unwrap()
+                .metadata
+                .event,
+            ""
+        );
     }
     #[test]
     fn import_update_reopen_preserves_original_and_relations() {

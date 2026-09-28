@@ -34,6 +34,17 @@
       busy = false;
     }
   }
+  async function rebuildPreview() {
+    if (busy || !desktop) return;
+    busy = true;
+    try {
+      await catalogCommand("asset_refresh_preview", { assetId: asset.id });
+      notify(sourceMessage("浏览图已重新生成"));
+    } catch {
+    } finally {
+      busy = false;
+    }
+  }
   async function cover(assetId: string | null) {
     busy = true;
     try {
@@ -104,6 +115,12 @@
       onclick={rotate}
       ><RotateCw size={12} />{busy ? tr("处理中…") : tr("顺时针旋转")}</button
     >
+    {#if desktop && (asset.previewError || !asset.src)}<button
+      class="btn btn-ghost btn-xs"
+      disabled={busy || source?.available === false}
+      onclick={rebuildPreview}
+      ><RotateCw size={12} />{tr("重新生成浏览图")}</button
+    >{/if}
     <button
       class="btn btn-ghost btn-xs"
       disabled={busy}

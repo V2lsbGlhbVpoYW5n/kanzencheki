@@ -242,7 +242,7 @@
   }
 </script>
 
-<svelte:head><title>{person?.name ?? tr("人物")} — Cheki</title></svelte:head>
+<svelte:head><title>{person?.name ?? tr("人物")} — KanzenCheki</title></svelte:head>
 <input
   class="hidden"
   type="file"

@@ -1,120 +1,91 @@
-# Cheki Gallery
+# KanzenCheki
 
-面向地下偶像推活的本地拍立得相册。Tauri 2 + Rust / SQLite + SvelteKit / Svelte 5 + daisyUI。
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-## 启动与验证
+A local-first desktop app for organizing cheki collections, their images, and the people and memories behind them. Built with Tauri 2, Rust, SQLite, SvelteKit, and Svelte 5.
 
-```sh
-devbox run npm install
-devbox run desktop               # Tauri 开发窗口，真实本地图库
-devbox run desktop-release       # 启动编译好的独立桌面程序
-devbox run dev                   # 浏览器示例 http://127.0.0.1:1420，不持久化
-devbox run npm run desktop:build # 编译独立桌面可执行文件（暂不打安装包）
-devbox run check                 # Svelte 类型检查与前端构建
-devbox run npm test              # 标签搜索与元数据交互规则
+The name is a playful nod to the *kanzenseiiki* call.
+
+> **Project status:** Version 0.1.0 is the first version and is currently in review. Features and data handling are being checked before a general release. There are no published installers yet.
+
+## Features
+
+- **Collection-first library:** Keep multiple scans or photos of one physical cheki together, with dates, people, groups, events, tags, notes, and favorites.
+- **Local storage:** Store metadata in SQLite and originals as ordinary files. Import into the managed library or manage originals in configured external folders. Cached previews allow browsing when an external folder is offline.
+- **Organize and find:** Search text, people, and tags; filter favorites and items needing details; sort collections; batch edit and merge.
+- **Image tools:** Choose a cover, crop, correct perspective, rotate, and inspect the original at full size. Crops preserve the original; rotation updates the original file.
+- **People and backups:** Keep person profiles, attachments, and Markdown notes. Create full or incremental library backups and preview conflicts before restoring.
+- **Offline suggestions:** On-device face detection and matching can suggest shot types and people for review. Suggestions are never silently treated as verified metadata.
+- **Interface languages:** Simplified Chinese, English, and Japanese.
+
+The desktop app persists your library. The browser preview uses temporary sample data and resets on refresh. The statistics route exists but its page is not implemented yet.
+
+## Getting started
+
+### Requirements
+
+[Devbox](https://www.jetify.com/devbox) provides Node.js 22, Rust, and the Linux GTK/WebKit dependencies used by this repository. Native desktop builds have been exercised on Linux; other platforms still need validation.
+
+~~~sh
+devbox run npm ci
+devbox run desktop
+~~~
+
+The desktop development window starts a Vite server on port 1420. To inspect the temporary browser demo instead, run:
+
+~~~sh
+devbox run dev
+~~~
+
+### Build and verify
+
+~~~sh
+devbox run check                         # Svelte checks and frontend build
+devbox run npm test                      # Frontend tests
 devbox run cargo test --manifest-path src-tauri/Cargo.toml --lib
-```
+devbox run npm run desktop:build         # Desktop executable, without an installer
+devbox run desktop-release               # Run the built executable
+~~~
 
-`desktop` 会启动端口 1420 的开发服务器，如已运行浏览器预览需先停止它。Linux 可执行文件位于 `.cache/cargo-target/release/cheki-gallery`，可通过 `devbox run desktop-release` 启动，独立构建不依赖 Vite 服务。其他系统的原生构建仍需在对应系统验证。
+On Linux, the executable is at .cache/cargo-target/release/kanzencheki. The build does not currently produce an installer.
 
-Devbox 提供 Node 22、Rust 与 Linux GTK / WebKit 依赖，`devbox.lock` 固定解析结果。npm 缓存位于 `.cache/npm`，Cargo 下载与构建分别位于 `.cache/cargo`、`.cache/cargo-target`。首次调用 Devbox 可用 `XDG_CACHE_HOME="$PWD/.cache" devbox install`；Nix store 仍由系统管理。
+## Library and data
 
-## 本地图库
+By default, the desktop app opens a library in its operating system application-data directory. On Linux this is typically:
 
-默认使用系统应用数据目录下 `app.chekigallery.desktop/library`，Linux 通常为 `~/.local/share/app.chekigallery.desktop/library`。当前可通过环境变量 `CHEKI_LIBRARY_DIR` 指定另一图库目录，右下方的设置按钮打开浮层，可添加多个外部原件目录和重新定位离线目录。当前本机数据库／缓存目录仍通过此环境变量选择，尚未提供原地迁移。
+~~~text
+~/.local/share/app.kanzencheki.desktop/library/
+~~~
 
-```text
-library/
-  library.sqlite      # 收藏信息、人物、标签与影像关系
-  library.sqlite-wal  # SQLite 运行时日志（可能存在）
-  library.sqlite-shm
-  library.lock        # 防止多个进程同时管理同一图库
-  originals/          # 按原始字节复制的照片，不转码、不修改来源文件
-  previews/           # 最长边 1800px 的完整缓存与裁切浏览图
-  staging/            # 导入临时文件与可恢复的导入日志
-```
+The historical application identifier is deliberately retained so existing libraries remain discoverable after the rename. Set CHEKI_LIBRARY_DIR before launching to use another library directory. This environment variable is also retained for compatibility.
 
-文件名例如 `2026-08-27_小明+小蓝等5人_a38f9e21b0.tiff`。日期或人物尚未补全时使用 `未定日期` / `未定人物`；保存资料后更新托管原件文件名。数据库保留导入前文件名。设置提供运行中可用的逐目录备份；手动复制图库时仍应退出程序，勿仅复制运行中的 SQLite 主文件。
+A library contains a SQLite database, managed originals, previews, and import staging files. Originals imported into the managed library are copied without changing their source files. Originals in configured external folders can be renamed or rotated in place by the app. Back up both the database and the originals; use the built-in backup tools for a consistent snapshot rather than copying only the live SQLite file.
 
-- **Cheki** 是实体收藏，保存日期、多人列表（团切改用独立团体名）、活动、自由文字标签、拍摄类型、备注和独立的 `favorite` 布尔值。
-- **Asset** 是一份独立影像，每份只对应一个原始文件。一个收藏可含多份影像，详情胶片带添加影像，相册多选执行归并。归并来源记录保留在应用回收站，因此内部关系仍兼容共享引用；删除会检查引用，避免误删。
-- 内部 **Rendition** 只保存 `original` 原件、`base` 完整本机缓存和 `display` 裁切浏览图，不再提供文件版本管理。旧图库的同源版本会迁移为独立影像，保留原件和离线预览。
-- 人物与标签均通过实体表和关联表存储。多人切保存全部人物；团切单独保存团体名，并清除人物关联，文件名只取前两名及总人数，不把人物列表当作一段不可查询的备注。
-- 原生文件选择支持 JPEG、PNG、WebP、TIFF 和批量导入。导入使用暂存副本及持久化日志，启动时恢复未完成入库；元数据保存和文件改名意图一起提交，重启可继续改名。
-- Devbox 提供 ImageMagick，生成最长边 1800px 的 JPEG，支持 EXIF 自动方向。处理限制为内存 256 MiB、映射 512 MiB、磁盘缓存 8 GiB、2 线程、300 秒；缺少 ImageMagick 时回退到有 512 MiB 解码预算的 Rust 解码器。特殊或超大图像仍可能处理失败，操作立即报告失败，已入库原件保留，不保存重试任务。
-- 外部原件使用目录 ID + 相对路径登记，在原文件夹内按日期、人物／团体、短 ID 重命名，与本机原件统一管理。修改文件名或删除需要原件在线，否则立即失败；已有本机预览可离线浏览和裁切。相册空闲时每 30 秒刷新连接状态，不自动重试失败任务。
+Supported image imports include JPEG, PNG, WebP, and TIFF. Some preview operations use ImageMagick or a Rust decoder fallback. The desktop app starts with an empty library; sample images are only used by the browser demo.
 
-外置目录可以从设置中移除，在线或离线均可。移除会删除该目录的全部影像记录（含回收站）、浏览缓存及因此为空的收藏；始终保留外置原始照片，不发送到系统回收站。混合收藏中的本机或其他目录影像不受影响。
+## Project layout
 
-## 相册交互
+| Path | Purpose |
+| --- | --- |
+| src/ | SvelteKit interface, localizations, and browser demo |
+| src-tauri/ | Rust desktop backend, storage, and image processing |
+| src-tauri/models/ | On-device model details and third-party licenses |
+| static/demo/ | Browser demo images and source information |
+| docs/ | Deprecated design artifacts retained for history |
 
-整页连续相册、顶部浮动导航（统计 / 相册 / 人物），统计与人物页留空。底部爱心和 Inbox 按钮切换当前视图，再次点击返回全部收藏；左上角显示当前视图和结果数量。
+## Roadmap
 
-排序位于“搜索与筛选”浮层，菜单仅提供拍摄日期、人物／团体名称，旁边的圆形按钮切换正序／倒序。未填日期的收藏在日期排序中始终置后。原月份过滤已改为日期跳转：只在当前搜索／筛选结果中定位，保留结果数量和当前排序；没有当天收藏时定位最近日期的第一张收藏所在行。选定日期即执行一次滚动，不保留选择状态、不高亮、不发送完成消息。
+- [ ] CI/CD for checks, builds, and releases
+- [ ] Mobile app
+- [ ] Local network synchronization
+- [ ] Statistics page
 
-Inbox 条件为缺少日期或人物；团切改为缺少日期或团体名。进入时固定这一批收藏，补全并保存后保留卡片并覆盖半透明完成提示，直到离开 Inbox 后再进入才重新筛选。活动、标签、类型和备注不影响是否完成。
+These are directions for future work, not release commitments.
 
-大图右侧分为“收藏信息”和“影像”两个页签，只保留右上关闭入口。日期使用 Cally + daisyUI 日历，菜单统一为玻璃浮层。信息卡可编辑元数据，底部显示当前影像的文件名、分辨率、大小。人物和标签支持输入、候选补全、Enter 添加及删除。搜索支持 `#标签`、`@人物` 精确匹配及各自的候选补全（团体不混入人物）。可使用 `AND / OR / NOT` 与括号，优先级为 NOT、AND、OR；相邻条件默认 AND。例如 `(@小明 OR @小蓝) AND NOT #重复`。运算符不区分大小写；将普通词 AND 等放入引号即可搜索字面内容。名称含空格用 `#"夏日 演出"` 或 `@"人物 名"`，补全会自动加引号。语法不完整会显示提示，不把错误查询当成全部结果。普通文字搜索人物、团体、活动、日期、备注、类型、标签及原文件名。`Ctrl/Cmd + Enter` 保存，左右方向键切换当前收藏影像，关闭未保存编辑会提示。
+## Contributing
 
-编辑活动时，桌面版会在输入框获得焦点后按收藏日期向 [推活日记](https://ievent.life/event/index)检索当天活动，并随着输入内容筛选名称候选。选中后只保存活动名称文本，不建立活动实体或关联；无网络或无结果时仍可手动填写。
+Bug reports and feature suggestions are welcome in GitHub Issues. Please describe the behavior, steps to reproduce, and your environment for bugs. This app is primarily built around a personal workflow. It will be maintained long term, but new features may be added selectively rather than aggressively.
 
-浏览器版本仍使用内存示例数据，刷新后重置；正式桌面版从空图库开始，不自动导入示例图片。示例来源见 `static/demo/SOURCES.md`。
+## License
 
-## 影像管理
-
-导入可分别建立收藏，或将文件作为同一收藏的多份影像。每份影像只有一个原件，不区分扫描件或手机翻拍。可复制到本机图库，或在已配置目录中原地管理。目录扫描递归处理子文件夹，跳过符号链接和已登记文件。
-
-自动封面优先有本机预览的影像，再按像素尺寸和 TIFF 格式选择；可手动指定影像封面。详情提供裁切、封面设置、单份影像删除，以及文件名、尺寸、大小和目录在线状态。归并仅在相册多选工具条执行，可选择保留哪张收藏的资料，其余原资料留在回收站。
-
-裁切支持自由比例、Instax Mini / Square / Wide 正反方向比例，以及拖动四个顶点的透视校正和结果预览。参数保存在数据库，保留原件，离线也可编辑本机缓存。自动裁切根据图像四周的背景颜色寻找主要卡片区域；有透视倾斜时提供四角建议，背景复杂或边界不完整时提示手动裁切。建议需要检查并确认。顺时针旋转会写回在线原件，并同步尺寸、裁切参数和所有浏览缓存；JPEG 会重新编码。旋转记录支持中途退出后的恢复。当前不做一张扫描中自动分割多张拍立得或全分辨率裁切导出。
-
-相册使用轻量正方形舞台，设置可切换完整显示／铺满。点击详情图片进入全窗口查看，可切换裁切图与原图，离线回退完整压缩缓存。Ctrl/Cmd+滚轮或加减号缩放，拖拽或方向键移动，0 适应窗口、1 原始像素。TIFF 按原尺寸临时转换为可显示的 JPEG，关闭查看后清理。人物见面天数按有效收藏日期去重；相册见面天数排序取关联人物的最大值，团切按 0 且始终最后。
-
-## 回收站与任务中心
-
-底部“选择收藏”进入多选，支持 Shift 连选、全选当前结果与 Ctrl/Cmd+A。批量删除第一次点击进入确认，第二次点击才移入回收站；改变选择会清除确认状态。回收站支持恢复和批量永久删除。永久删除需再点击确认：不再被其他收藏使用的原件送入系统回收站，完整及裁切浏览缓存直接清除。系统回收站不可用或原件离线则报错，不回退为直接删除原件。单份影像删除同样保护共享引用；删除最后一份影像会移除空收藏。
-
-相册多选还可批量修改日期、人物、活动和拍摄类型；只改勾选的字段。开始前会检查所选原件的在线状态和目标文件名冲突。
-
-设置中可清空本机仓库：醒目警告、输入「清空本机仓库」、连续两次按钮确认。本机照片原件、人物附件和文章移入系统回收站，并移除相应记录与浏览图。人物条目与简介、外置原件及其离线浏览图保留。
-
-设置中可按本机或外置储存分别导出 `.tar.lz4` 压缩包。完整备份包含该目录的原件、本机相关浏览缓存与一致性 SQLite 快照，可单独搬运和恢复。增量备份须先选择同一储存的基础压缩包，只存入基础包里没有的数据；依赖压缩包必须与新包保存在同一文件夹，恢复时应整条链一起保留、保持文件名并一起搬运。压缩包需保存在图库及原件目录之外，导出时会临时占用备份目标磁盘空间，恢复时会临时占用本机磁盘空间。恢复前先预览缺失文件和冲突文件清单（含双方时间、大小），再选择仅覆盖备份时间更晚的冲突文件、跳过所有冲突，或取消。缺失文件在前两种方式下都会恢复。已有收藏资料以当前图库为准，新收藏和影像记录从备份补入；恢复有中断恢复日志。外置储存恢复时可以选择新的目录，原备份压缩包不受影响。
-
-操作完成消息显示为短暂悬浮提示，左下角圆形按钮展开任务与消息中心。批量导入按已处理文件数报告进度，单文件解码阶段显示处理中，不伪造解码百分比。任务和消息只存在本次会话内；不持久化处理队列、不自动恢复失败任务。导入与改名的文件一致性日志仍保留，用于处理意外退出，不是后台待处理任务。当前不提供任务取消或字节级拷贝进度。
-
-尚未实现：目录文件变动的自动入库、同步、人物识别、场景返切管理、统计页面、安装包发布。
-
-## Linux / Wayland 图形环境
-
-在本机 EndeavourOS + Wayland 中，直接启动 Nix 构建的 WebKitGTK 会出现 `EGL_BAD_PARAMETER`。`scripts/desktop.sh` 使用 Devbox 锁定的 nixGLIntel 衔接 Mesa/EGL 驱动；Wayland 会话下默认使用原生 Wayland，并尊重已有的 `GDK_BACKEND` 设置。没有关闭 WebKit 合成或模糊效果，也不依赖 XWayland。已验证窗口正常显示。
-
-这里的 nixGLIntel 是 Mesa 包装器，也适用于 AMD Mesa 驱动；专有 NVIDIA 驱动环境尚未验证，需要匹配内核驱动版本的 nixGLNvidia。说明见 [nixGL](https://github.com/nix-community/nixgl)。包装器只作用于本项目启动命令，不修改系统图形配置。
-
-## 大文件回归
-
-已用 19,000 × 19,000、1,083,009,768 字节的未压缩 TIFF 验证完整导入及 1800px 离线缓存生成。可选压力测试会创建并自动清理临时文件，需数 GB 空闲磁盘：
-
-```sh
-devbox run bash -c 'cargo test --manifest-path src-tauri/Cargo.toml --lib gigabyte_tiff_generates_offline_cache -- --ignored --nocapture --test-threads=1'
-```
-
-## 人物附件与外观
-
-人物详情以紧凑列表展示收藏、附件和文章，支持批量选择。设置中的外观可选择浅色、深色或跟随系统，保存在当前设备的应用 WebView 本地存储中。
-
-人物简介支持 `[文字](https://example.com)` 和直接粘贴 `https://...` 或 `www....` 链接。桌面版点击后使用系统默认浏览器打开，仅识别 HTTP/HTTPS 网页链接，其他内容仍作为普通文字显示。
-
-桌面视频封面由 Devbox 提供的 FFmpeg 在后台提取第一帧，20 秒超时，返回的 JPEG 只保存在内存中，不改写原件或增加磁盘缓存。缺失或不支持的文件显示文件类型图标。Linux 桌面不在 WebKit 中创建音视频播放器，点击预览后可通过系统默认播放器打开原件，避免 WebKit/GStreamer 媒体管线引发 WebProcess 崩溃。此变更保留原生 Wayland 和玻璃模糊效果；其他平台仍支持内嵌播放。
-
-
-导入完成后，桌面版会在单独的 CPU 后台任务中检测收藏封面的人脸数量，并用 MobileFaceNet 在本机尝试匹配已有人物。模型随应用分发，无需联网或额外运行环境。1／2／3–4／≥5 张人脸分别建议 solo／2 shot／多人切／团切，未检测到则保持原状。人物匹配只使用已核验的 solo 收藏作为临时参考，每个人最多取五张；特征只存在于当次任务内，不写入数据库或文件。模型来源和许可证见 `src-tauri/models/README.md`。
-
-仅对未关联人物、团体名为空且类型为“其他”的收藏应用建议；检测期间任何已保存的资料修改、关联变化、裁切或删除都会使过期结果失效。人物只有在最佳相似度超过保守阈值、且明显高于第二候选时才会被填入。结果以“待核验”遮罩显示，详情中可修改、保存并确认核验；核验状态保存在数据库，确认不会替代日期的填写。后台任务不持久化，退出程序会终止未完成检测。侧脸、遮挡、小脸、背景路人以及没有足够单人参考图都会降低识别效果。
-
-### 界面语言
-
-设置中可随时切换简体中文、English、日本語，立即生效并保存到本机的 `cheki-language` 偏好。首次使用按系统语言匹配，不支持的语言回退为英文。语言切换不改写人物、别名、标签、文章、文件名或数据库枚举值；拍摄类型只翻译显示标签。
-
-翻译统一由 `src/lib/i18n.svelte.ts` 的响应式语言状态驱动，纯格式化逻辑在 `src/lib/i18n.ts`。中文原文作为消息键，英日译文分别维护于 `src/lib/locales/en.json` 与 `ja.json`；英文单数形式在 `en-one.json`。含数量、名字等动态内容的整句使用 `{0}`、`{1}` 参数，避免拼接不同语言的语序。新增文案使用 `tr(key, args)`；任务使用 `sourceMessage(key, args)` 保留源消息，展示时再翻译，保证历史任务也能切换语言。后端诊断在展示边界翻译，技术错误详情原样保留；导入中的文件名通过 `literalDetail` 明确标记，不参与翻译。原生文件对话框的系统按钮由操作系统提供语言。
-
-`npm test` 会检查消息覆盖、英日键集和占位符一致性、语言匹配、单复数及后端消息显示。
+The project source code is licensed under the [MIT License](LICENSE). Bundled face models have their own licenses in [src-tauri/models/](src-tauri/models/README.md). Browser demo images are third-party material; see [their source notes](static/demo/SOURCES.md). The MIT license does not grant rights to those images or models.

@@ -1,11 +1,12 @@
 [package]
-name = "cheki-gallery"
+name = "kanzencheki"
 version = "0.1.0"
-description = "A local-first cheki collection"
+description = "A local-first cheki collection app"
+license = "MIT"
 edition = "2021"
 
 [lib]
-name = "cheki_gallery_lib"
+name = "kanzencheki_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

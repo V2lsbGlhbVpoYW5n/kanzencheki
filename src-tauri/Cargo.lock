@@ -547,33 +547,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cheki-gallery"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "filetime",
- "image",
- "lz4_flex",
- "mime_guess",
- "reqwest",
- "rusqlite",
- "rustface",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tempfile",
- "tract-onnx",
- "trash",
- "uuid",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2278,6 +2251,33 @@ checksum = "5dea2b27dd239b2556ed7a25ba842fe47fd602e7fc7433c2a8d6106d4d9edd70"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "kanzencheki"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "filetime",
+ "image",
+ "lz4_flex",
+ "mime_guess",
+ "reqwest",
+ "rusqlite",
+ "rustface",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tempfile",
+ "tract-onnx",
+ "trash",
+ "uuid",
 ]
 
 [[package]]

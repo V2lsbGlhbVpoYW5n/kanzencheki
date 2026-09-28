@@ -984,6 +984,75 @@ mod tests {
         assert!(a.original_path.starts_with(target.to_str().unwrap()));
         assert!(Path::new(&a.original_path).is_file());
     }
+    #[test]
+    fn unchanged_external_original_without_backed_up_cache_gets_preview() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source_disk = tmp.path().join("disk-a");
+        let target_disk = tmp.path().join("disk-b");
+        fs::create_dir(&source_disk).unwrap();
+        fs::create_dir(&target_disk).unwrap();
+        let input = source_disk.join("photo.png");
+        picture(&input, [70, 80, 90]);
+        let archive = tmp.path().join("backup.tar.lz4");
+        let mut source = Store::open(tmp.path().join("source")).unwrap();
+        source.add_location(&source_disk, None).unwrap();
+        source
+            .import_file(
+                &input,
+                &ImportOptions {
+                    reference: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let original = source.list().unwrap().chekis[0].assets[0]
+            .original_path
+            .clone();
+        let asset = source.list().unwrap().chekis[0].assets[0].id.clone();
+        fs::copy(
+            &original,
+            target_disk.join(Path::new(&original).file_name().unwrap()),
+        )
+        .unwrap();
+        source
+            .db
+            .execute(
+                "DELETE FROM renditions WHERE asset_id=?1 AND role IN ('base','display')",
+                [&asset],
+            )
+            .unwrap();
+        let location = source
+            .locations()
+            .unwrap()
+            .into_iter()
+            .find(|l| l.id != "local")
+            .unwrap();
+        let snapshot = source
+            .backup_archive(&location.id, &archive, None, |_, _, _| {})
+            .unwrap()
+            .snapshot;
+        let mut dest = Store::open(tmp.path().join("dest")).unwrap();
+        let plan = dest
+            .restore_plan(&archive, &snapshot.id, Some(&target_disk))
+            .unwrap();
+        assert_eq!(plan.unchanged, 1);
+        assert_eq!(plan.missing, 0);
+        let result = dest
+            .restore_backup(
+                &archive,
+                &snapshot.id,
+                Some(&target_disk),
+                RestorePolicy::Skip,
+                &plan.token,
+                |_, _, _| {},
+            )
+            .unwrap();
+        assert_eq!(result.restored, 0);
+        let restored = &result.library.chekis[0].assets[0];
+        assert!(Path::new(&restored.src).is_file());
+        assert!(Path::new(&restored.base_src).is_file());
+        assert!(restored.preview_error.is_none());
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1440,14 +1509,35 @@ impl Store {
         detach?;
         // A missing or stale cache is recreated from a restored source. A cache failure leaves
         // the original and catalog intact; the preview error is visible in the library.
-        let regenerate: Vec<_> = selected
+        let restored_sources: HashSet<_> = selected
             .iter()
             .filter(|c| c.file.role.as_deref() == Some("original"))
             .filter_map(|c| c.file.asset.as_deref())
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .filter(|asset| !cache_ready.contains(*asset))
             .collect();
+        let mut regenerate = vec![];
+        for asset in m
+            .files
+            .iter()
+            .filter(|f| f.role.as_deref() == Some("original"))
+            .filter_map(|f| f.asset.as_deref())
+            .collect::<HashSet<_>>()
+        {
+            let mut missing_cache = false;
+            for role in ["base", "display"] {
+                let path: Option<String> = self.db.query_row(
+                    "SELECT relative_path FROM renditions WHERE asset_id=?1 AND role=?2 AND location_id='local'",
+                    params![asset, role],
+                    |r| r.get(0),
+                ).optional()?;
+                if path.is_none_or(|path| !self.root.join(path).is_file()) {
+                    missing_cache = true;
+                    break;
+                }
+            }
+            if missing_cache || (restored_sources.contains(asset) && !cache_ready.contains(asset)) {
+                regenerate.push(asset);
+            }
+        }
         for (i, asset) in regenerate.iter().enumerate() {
             progress(
                 progress_base + i,
