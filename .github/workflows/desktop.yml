@@ -121,4 +121,5 @@ jobs:
       - name: Publish only after every package succeeds
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease
