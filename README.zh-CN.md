@@ -20,6 +20,11 @@ KanzenCheki 是一款本地优先的桌面软件，用来整理拍立得收藏�
 
 桌面版会持久保存图库；浏览器预览只使用临时示例数据，刷新后重置。统计路由已经建立，但页面尚未实现。
 
+> [!CAUTION]
+> 这个项目是 Vibe Coding First 的项目，且目前代码没有经过完整的人工审阅，可能存在数据风险，请经常使用备份功能，并尽量进行手动备份来降低数据丢失或损坏的风险。
+>
+> 注意这个项目目前还在 Pre-Release 阶段，可能存在破坏性的变更。
+
 ## 快速开始
 
 ### 环境要求
@@ -34,6 +39,7 @@ devbox run desktop
 桌面开发窗口会在 1420 端口启动 Vite 服务。若只想查看临时浏览器示例，可以运行：
 
 ~~~sh
+devbox run npm run demo:images          # 在本机下载第三方示例图片
 devbox run dev
 ~~~
 
@@ -70,7 +76,7 @@ Linux 可执行文件位于 .cache/cargo-target/release/kanzencheki。目前构�
 | src/ | SvelteKit 界面、翻译和浏览器示例 |
 | src-tauri/ | Rust 桌面后端、存储和影像处理 |
 | src-tauri/models/ | 本机模型说明与第三方许可证 |
-| static/demo/ | 浏览器示例图片和来源说明 |
+| static/demo/ | 浏览器示例图片来源；按需下载到本机 |
 | docs/ | 保留作历史参考的已弃用设计文档 |
 
 ## Roadmap
@@ -88,4 +94,4 @@ Linux 可执行文件位于 .cache/cargo-target/release/kanzencheki。目前构�
 
 ## 许可证
 
-项目源代码采用 [MIT License](LICENSE)。随附的人脸模型适用各自的许可证，详见 [src-tauri/models/](src-tauri/models/README.md)。浏览器示例图片为第三方素材，来源见[图片说明](static/demo/SOURCES.md)；MIT 许可证不授予这些图片或模型的使用权。
+项目源代码采用 [MIT License](LICENSE)。随附的人脸模型适用各自的许可证，详见 [src-tauri/models/](src-tauri/models/README.md)。浏览器示例图片为第三方素材，不再纳入 Git 仓库；来源见[图片说明](static/demo/SOURCES.md)。MIT 许可证不授予这些图片或模型的使用权。下载脚本会校验每张图片的 SHA-256，若原站内容变动则停止使用。

@@ -11,6 +11,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
     "test": "vitest run --config vitest.config.ts",
+    "demo:images": "node scripts/download-demo-images.mjs",
     "desktop:build": "tauri build --no-bundle"
   },
   "devDependencies": {

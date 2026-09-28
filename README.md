@@ -20,6 +20,11 @@ The name is a playful nod to the *kanzenseiiki* call.
 
 The desktop app persists your library. The browser preview uses temporary sample data and resets on refresh. The statistics route exists but its page is not implemented yet.
 
+> [!CAUTION]
+> This is a Vibe Coding First project, and the code has not yet received a complete human review. Data loss or corruption is possible. Use the built-in backup tools regularly, and keep manual backups to reduce the risk.
+>
+> The project is still in pre-release and may introduce breaking changes.
+
 ## Getting started
 
 ### Requirements
@@ -34,6 +39,7 @@ devbox run desktop
 The desktop development window starts a Vite server on port 1420. To inspect the temporary browser demo instead, run:
 
 ~~~sh
+devbox run npm run demo:images          # Download third-party demo images locally
 devbox run dev
 ~~~
 
@@ -70,7 +76,7 @@ Supported image imports include JPEG, PNG, WebP, and TIFF. Some preview operatio
 | src/ | SvelteKit interface, localizations, and browser demo |
 | src-tauri/ | Rust desktop backend, storage, and image processing |
 | src-tauri/models/ | On-device model details and third-party licenses |
-| static/demo/ | Browser demo images and source information |
+| static/demo/ | Browser demo image sources; images are downloaded locally on request |
 | docs/ | Deprecated design artifacts retained for history |
 
 ## Roadmap
@@ -88,4 +94,4 @@ Bug reports and feature suggestions are welcome in GitHub Issues. Please describ
 
 ## License
 
-The project source code is licensed under the [MIT License](LICENSE). Bundled face models have their own licenses in [src-tauri/models/](src-tauri/models/README.md). Browser demo images are third-party material; see [their source notes](static/demo/SOURCES.md). The MIT license does not grant rights to those images or models.
+The project source code is licensed under the [MIT License](LICENSE). Bundled face models have their own licenses in [src-tauri/models/](src-tauri/models/README.md). Browser demo images are third-party material and are not included in the Git repository; see [their source notes](static/demo/SOURCES.md). The MIT license does not grant rights to those images or models. The download script checks each image's SHA-256 and stops if its source has changed.

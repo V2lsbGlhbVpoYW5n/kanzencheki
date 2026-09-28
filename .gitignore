@@ -8,3 +8,7 @@ src-tauri/target/
 .DS_Store
 
 src-tauri/gen/schemas/
+
+# Third-party browser demo images are fetched only when requested.
+/static/demo/*.jpg
+/static/demo/*.png
